@@ -26,7 +26,7 @@ public class StoreSchedules {
     private int capacity;
 
     @Column(nullable = false)
-    private int interval;
+    private int intervalTime;
 
     @Column(name = "day_of_week", nullable = false)
     private String dayOfWeek;
