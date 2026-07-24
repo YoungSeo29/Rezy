@@ -21,6 +21,12 @@ public class Store {
     @Column(name = "store_name", nullable = false)
     private String storeName;
 
+    @Column(name = "address", nullable = false)
+    private String address;
+
+    @Column(name = "business_hours", nullable = false)
+    private String businessHours;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "manager_id", nullable = false)
     private User manager;
@@ -30,6 +36,17 @@ public class Store {
         if (storeId == null) {
             storeId = UUID.randomUUID().toString();
         }
+    }
+
+    // 가게 등록 시 호출 — 새 Store 객체를 만들어 반환 (아직 DB 저장 전 상태)
+    public static Store create(String storeName, String address,
+                               String businessHours, User manager) {
+        Store store = new Store();
+        store.storeName = storeName;
+        store.address = address;
+        store.businessHours = businessHours;
+        store.manager = manager;
+        return store;
     }
 
 }
