@@ -52,4 +52,17 @@ public class Reservation {
         }
     }
 
+    public static Reservation create (User user, Store store, ReservationSlot slot, int partySize) {
+        Reservation reservation = new Reservation();
+        reservation.user = user;
+        reservation.store = store;
+        reservation.slot = slot;
+        reservation.reservationDate = slot.getSlotDatetime();
+
+        reservation.partySize = partySize;
+        reservation.status = ReservationStatus.CONFIRMED;
+
+        return reservation;
+    }
+
 }

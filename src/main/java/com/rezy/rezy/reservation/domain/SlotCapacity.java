@@ -52,5 +52,13 @@ public class SlotCapacity {
         return capacity;
     }
 
+    // 예약 1건만큼 잔여 팀 수 차감
+    public void decreaseRemaining() {
+        if(this.remainingTeams <= 0) {
+            throw new IllegalStateException("해당 시간대의 예약 가능한 자리가 없습니다.");
+        }
+        this.remainingTeams -= 1;
+    }
+
 
 }

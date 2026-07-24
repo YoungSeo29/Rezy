@@ -1,6 +1,6 @@
 package com.rezy.rezy.reservation.service;
 
-import com.rezy.rezy.reservation.ReservationSlotRepository;
+import com.rezy.rezy.reservation.repository.ReservationSlotRepository;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.dto.PartySizeCapacityRequest;
 import com.rezy.rezy.reservation.dto.ScheduleCreateRequest;
