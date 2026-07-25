@@ -4,18 +4,23 @@ import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
+import com.rezy.rezy.reservation.dto.MyReservationResponse;
 import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
+import com.rezy.rezy.reservation.dto.ReservationListType;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
 import com.rezy.rezy.user.UserRepository;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
-import jakarta.transaction.Transactional;
+import com.rezy.rezy.user.dto.MyProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -58,5 +63,19 @@ public class ReservationService {
         reservationRepository.save(reservation);
 
         return ReservationResponse.from(reservation);
+    }
+
+    @Transactional (readOnly = true)
+    public List<MyReservationResponse> getMyReservations(String userId, ReservationListType type) {
+
+        LocalDateTime now = LocalDateTime.now();
+
+        List<Reservation> reservations = (type == ReservationListType.UPCOMING)
+                ? reservationRepository.findUpcoming(userId, now, ReservationStatus.CONFIRMED)
+                : reservationRepository.findPast(userId, now, ReservationStatus.CONFIRMED);
+
+        return reservations.stream()
+                .map(MyReservationResponse::from)
+                .toList();
     }
 }
