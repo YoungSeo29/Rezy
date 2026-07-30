@@ -1,15 +1,13 @@
 package com.rezy.rezy.reservation.service;
 
+import com.rezy.rezy.reservation.dto.*;
 import com.rezy.rezy.reservation.repository.ReservationSlotRepository;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
-import com.rezy.rezy.reservation.dto.PartySizeCapacityRequest;
-import com.rezy.rezy.reservation.dto.ScheduleCreateRequest;
-import com.rezy.rezy.reservation.dto.ScheduleCreateResponse;
 import com.rezy.rezy.store.StoreRepository;
 import com.rezy.rezy.store.domain.Store;
-import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.DayOfWeek;
 import java.time.LocalDate;
@@ -104,5 +102,40 @@ public class ReservationSlotService {
         }
 
         return slots;
+    }
+
+    // 특정 날짜의 슬롯 조회 - 달력에서 날짜 눌렀을 때 시간대 + 잔여인원 반환
+    @Transactional(readOnly = true)
+    public DailySlotResponse getSlotsByDate(String storeId, LocalDate date) {
+
+        Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
+
+        List<ReservationSlot> slots = reservationSlotRepository
+                .findByStoreAndSlotDatetimeBetweenOrderBySlotDatetimeAsc(
+                        store, date.atStartOfDay(), date.atTime(LocalTime.MAX));
+
+        List<SlotResponse> slotResponses = slots.stream()
+                .map(SlotResponse::from)
+                .toList();
+
+        return DailySlotResponse.of(storeId, store.getStoreName(), date, slotResponses);
+    }
+
+    // 예약 가능한 날짜 목록 - 달력에서 어떤 날을 활성화 할지 표시하기 위함
+    @Transactional(readOnly = true)
+    public List<LocalDate> getAvailableDates(String storeId, int year, int month) {
+
+        Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
+
+        LocalDate first = LocalDate.of(year, month, 1);
+        LocalDate last = first.withDayOfMonth(first.lengthOfMonth());
+
+        return reservationSlotRepository.findSlotDatetimes(store, first.atStartOfDay(),
+                last.atTime(LocalTime.MAX))
+                .stream()
+                .map(LocalDateTime::toLocalDate)
+                .distinct()
+                .sorted()
+                .toList();
     }
 }

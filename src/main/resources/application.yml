@@ -39,3 +39,6 @@ jwt:
 app:
   oauth2:
     redirect-uri: http://localhost:3000/oauth/callback
+springdoc:
+  # ControllerAdvice 빈을 포함하여 문서화할지 여부를 설정
+  auto-response-codes: false
