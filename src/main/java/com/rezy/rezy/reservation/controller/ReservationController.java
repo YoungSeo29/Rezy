@@ -21,8 +21,9 @@ public class ReservationController {
 
     private final ReservationService reservationService;
 
+    // 예약하기- slotCapacityId로 예약
     @PostMapping
-    public ResponseEntity<ReservationResponse> reserve(
+    public synchronized ResponseEntity<ReservationResponse> reserve(
             Authentication authentication,
             @Valid @RequestBody ReservationCreateRequest request
     ) {
