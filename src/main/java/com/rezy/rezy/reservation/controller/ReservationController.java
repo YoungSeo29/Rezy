@@ -23,7 +23,7 @@ public class ReservationController {
 
     // 예약하기- slotCapacityId로 예약
     @PostMapping
-    public synchronized ResponseEntity<ReservationResponse> reserve(
+    public ResponseEntity<ReservationResponse> reserve(
             Authentication authentication,
             @Valid @RequestBody ReservationCreateRequest request
     ) {

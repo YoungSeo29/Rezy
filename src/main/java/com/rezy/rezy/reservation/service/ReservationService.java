@@ -42,20 +42,30 @@ public class ReservationService {
             throw new IllegalStateException("예약은 일반 사용자만 가능합니다.");
         }
 
-        // 2) 예약할 튜플 확인
-        SlotCapacity capacity = slotCapacityRepository.findById(request.getSlotCapacityId())
+        // 2-1) 날짜만 조회 (락 없음) - "하루 1건"검증에 쓸 날짜만 가져오기
+        LocalDateTime slotDatetime = slotCapacityRepository
+                .findSlotDatetimeById(request.getSlotCapacityId())
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
-        ReservationSlot slot = capacity.getSlot();
-        LocalDate date = slot.getSlotDatetime().toLocalDate();
 
-        // 3) 하루 1건 제한 확인
+        LocalDate date = slotDatetime.toLocalDate();
+
+        // 2-2) 하루 1건 제한 확인
         boolean alreadyBooked = reservationRepository.existsActiveOnDate( userId, date.atStartOfDay(), date.plusDays(1).atStartOfDay(), ReservationStatus.CANCELLED);
         if(alreadyBooked) {
             throw new IllegalStateException("같은 날짜에는 하루에 한 건만 예약할 수 있습니다.");
         }
 
-        // 4) 잔여 차감
+
+        // 3) 예약할 버킷 확인
+        // 락 획득 - 이 시점부터 Trx 종료까지. 같은 버킷 노리는 다른 요청은 대기
+        SlotCapacity capacity = slotCapacityRepository.findByIdForUpdate(request.getSlotCapacityId())
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+
+        ReservationSlot slot = capacity.getSlot();
+
+        // 4) 잔여 차감 (remaining_teams 확인은 이 함수 내부에서)
         capacity.decreaseRemaining();
+
 
         // 5) 예약 저장
         Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize());
