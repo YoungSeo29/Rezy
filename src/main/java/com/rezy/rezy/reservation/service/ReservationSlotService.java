@@ -110,8 +110,9 @@ public class ReservationSlotService {
 
         Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
 
+        // N+1 문제 방지를 위해 fetch join -> 한 번에 슬롯 + 인원 갖고옴
         List<ReservationSlot> slots = reservationSlotRepository
-                .findByStoreAndSlotDatetimeBetweenOrderBySlotDatetimeAsc(
+                .findWithCapacities(
                         store, date.atStartOfDay(), date.atTime(LocalTime.MAX));
 
         List<SlotResponse> slotResponses = slots.stream()

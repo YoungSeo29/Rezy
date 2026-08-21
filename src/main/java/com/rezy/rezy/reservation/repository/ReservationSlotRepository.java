@@ -23,4 +23,14 @@ public interface ReservationSlotRepository extends JpaRepository<ReservationSlot
     List<LocalDateTime> findSlotDatetimes(@Param("store") Store store,
                                           @Param("start") LocalDateTime start,
                                           @Param("end") LocalDateTime end);
+
+    // 슬롯과 인원 버킷을 한 번에 조회 (N+1 방지)
+    @Query("select distinct s from ReservationSlot s " +
+            "join fetch s.capacities " +
+            "where s.store = :store " +
+            "and s.slotDatetime between :start and :end " +
+            "order by s.slotDatetime")
+    List<ReservationSlot> findWithCapacities(@Param("store") Store store,
+                                             @Param("start") LocalDateTime start,
+                                             @Param("end") LocalDateTime end);
 }
