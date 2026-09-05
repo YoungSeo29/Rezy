@@ -15,6 +15,7 @@ import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
 import com.rezy.rezy.user.dto.MyProfileResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,9 +31,18 @@ public class ReservationService {
     private final SlotCapacityRepository slotCapacityRepository;
     private final ReservationRepository reservationRepository;
 
-    // 예약 생성 - User 검증 -> 하루 1건인지 검증-> 잔여 차감 -> 예약 저장 후 응답 반환
+    // Redis 접근용 - 문자열 전용이라서 DECS/INCR 사용 가능
+    private final StringRedisTemplate redisTemplate;
+
+    // 재고 키 접두사 - ex) slot:cap:{slotCapacityId}
+    private static final String STOCK_KEY_PREFIX = "slot:cap:";
+
+    // 예약 생성 - User 검증 -> 하루 1건인지 검증-> Redis 재고 차감 -> 예약 저장
+    // 기존과 달리 slot_capacities 행에 lock 안걺. 초과 예약은 Redis가 막아줌
     @Transactional
     public ReservationResponse reserve(String userId, ReservationCreateRequest request) {
+
+        String capacityId = request.getSlotCapacityId();
 
         // 1)  예약자 조회 + USER 권한인지 확인
         User user = userRepository.findById(userId)
@@ -42,9 +52,9 @@ public class ReservationService {
             throw new IllegalStateException("예약은 일반 사용자만 가능합니다.");
         }
 
-        // 2-1) 날짜만 조회 (락 없음) - "하루 1건"검증에 쓸 날짜만 가져오기
+        // 2-1) 날짜만 조회 - "하루 1건"검증에 쓸 날짜만 가져오기
         LocalDateTime slotDatetime = slotCapacityRepository
-                .findSlotDatetimeById(request.getSlotCapacityId())
+                .findSlotDatetimeById(capacityId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
 
         LocalDate date = slotDatetime.toLocalDate();
@@ -55,7 +65,7 @@ public class ReservationService {
             throw new IllegalStateException("같은 날짜에는 하루에 한 건만 예약할 수 있습니다.");
         }
 
-
+        /* @@ 비관적 lock 코드
         // 3) 예약할 버킷 확인
         // 락 획득 - 이 시점부터 Trx 종료까지. 같은 버킷 노리는 다른 요청은 대기
         SlotCapacity capacity = slotCapacityRepository.findByIdForUpdate(request.getSlotCapacityId())
@@ -66,13 +76,70 @@ public class ReservationService {
         // 4) 잔여 차감 (remaining_teams 확인은 이 함수 내부에서)
         capacity.decreaseRemaining();
 
-
         // 5) 예약 저장
         Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize());
 
         reservationRepository.save(reservation);
 
         return ReservationResponse.from(reservation);
+         */
+
+        // 3) Redis 에 저장 할 key 완성
+        String stockKey = STOCK_KEY_PREFIX + capacityId;
+
+        // 3-1) 키 없으면 DB에 가서 초기값 가져오기 - 최초 1회만 동작 - 검증은 loadStockIfAbsent() 내에서
+        loadStockIfAbsent(stockKey, capacityId);
+
+        // 3-2) 원자적 차감
+        // Redis는 명령을 직렬로 처리. 500개 요청 동시에 들어와도 순서대로 깎임.
+        // 반환 값은, "-1 된 후의 잔여 수량"
+        Long remaining = redisTemplate.opsForValue().decrement(stockKey);
+
+        // remainingTeams가 음수면 원상복귀 시키고 거절.
+        // DECR은 음수까지 내려가기 때문에 check 필요..
+        if(remaining == null || remaining < 0) {
+            redisTemplate.opsForValue().increment(stockKey);
+            throw new IllegalStateException("잔여 좌석이 없습니다.");
+        }
+
+        // 4) 예약 저장
+        // remainingTeams는 갱신X
+        // update하는 순간 그 행에 X-lock 걸려서 Redis로 없앤 직렬화가 살아나기 때문.
+        try{
+            SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
+                    .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+
+            ReservationSlot slot = capacity.getSlot();
+
+            Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize()); 
+
+            reservationRepository.save(reservation);
+
+            return ReservationResponse.from(reservation);
+
+        } catch (RuntimeException e) {
+
+            // 저장은 실패했는데 Redis 재고만 -1 되면 안되기때문에
+            // -1 한거 원상복귀.
+            redisTemplate.opsForValue().increment(stockKey);
+            throw e;
+        }
+    }
+
+    // Redis에 재고 키가 없으면 DB의 remainingTeams를 최초 1회 갖고옴.
+    private void loadStockIfAbsent(String stockKey, String capacityId) {
+
+        // 이미 재고 key  있으면 return
+        if(Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
+            return;
+        }
+
+        Integer remaining = slotCapacityRepository.findRemainingTeamsById(capacityId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약입니다."));
+
+        // setIfAbsent를 쓴 이유? 키가 없을 때만 쓴다 - Race Condition 예방
+        redisTemplate.opsForValue().setIfAbsent(stockKey, String.valueOf(remaining));
+
     }
 
     @Transactional (readOnly = true)

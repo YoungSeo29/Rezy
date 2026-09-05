@@ -25,7 +25,13 @@ public interface SlotCapacityRepository extends JpaRepository<SlotCapacity, Stri
     Optional<LocalDateTime> findSlotDatetimeById(@Param("id") String id);
 
     // 조회 없이 조건부 차감 한방에
+    // 원자적 update
     @Modifying
     @Query("update SlotCapacity sc set sc.remainingTeams = sc.remainingTeams -1 where sc.slotCapacityId = :id and sc.remainingTeams >0")
     int decreaseRemaining(@Param("id") String id);
+
+    // Redis에 재고를 처음 올릴 때 쓸 초기 값
+    // Entity 전체가 아니라 숫자 하나만 가져옴
+    @Query("select sc.remainingTeams from SlotCapacity sc where sc.slotCapacityId = :id")
+    Optional<Integer> findRemainingTeamsById(@Param("id") String id);
 }

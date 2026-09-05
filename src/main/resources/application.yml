@@ -6,6 +6,8 @@ spring:
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 50
   jpa:
     hibernate:
       ddl-auto: update
@@ -14,6 +16,15 @@ spring:
       hibernate:
         format_sql: true
         generate_statistics: true
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      lettuce:
+        pool:
+          max-active: 50
+          max-idle: 50
+          min-idle: 10
   security:
     oauth2:
       client:
