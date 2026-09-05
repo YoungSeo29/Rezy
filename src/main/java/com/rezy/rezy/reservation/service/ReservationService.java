@@ -1,5 +1,6 @@
 package com.rezy.rezy.reservation.service;
 
+import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
@@ -13,7 +14,6 @@ import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
 import com.rezy.rezy.user.UserRepository;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
-import com.rezy.rezy.user.dto.MyProfileResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+// 실제 예약 생성용
 @Service
 @RequiredArgsConstructor
 public class ReservationService {
@@ -31,11 +32,8 @@ public class ReservationService {
     private final SlotCapacityRepository slotCapacityRepository;
     private final ReservationRepository reservationRepository;
 
-    // Redis 접근용 - 문자열 전용이라서 DECS/INCR 사용 가능
+    // Redis 접근용 - 문자열 전용이라서 DECR/INCR 사용 가능
     private final StringRedisTemplate redisTemplate;
-
-    // 재고 키 접두사 - ex) slot:cap:{slotCapacityId}
-    private static final String STOCK_KEY_PREFIX = "slot:cap:";
 
     // 예약 생성 - User 검증 -> 하루 1건인지 검증-> Redis 재고 차감 -> 예약 저장
     // 기존과 달리 slot_capacities 행에 lock 안걺. 초과 예약은 Redis가 막아줌
@@ -85,7 +83,7 @@ public class ReservationService {
          */
 
         // 3) Redis 에 저장 할 key 완성
-        String stockKey = STOCK_KEY_PREFIX + capacityId;
+        String stockKey = RedisKeys.stock(capacityId);
 
         // 3-1) 키 없으면 DB에 가서 초기값 가져오기 - 최초 1회만 동작 - 검증은 loadStockIfAbsent() 내에서
         loadStockIfAbsent(stockKey, capacityId);
@@ -106,13 +104,16 @@ public class ReservationService {
         // remainingTeams는 갱신X
         // update하는 순간 그 행에 X-lock 걸려서 Redis로 없앤 직렬화가 살아나기 때문.
         try{
+            // 예약 저장에 필요한 capacity 엔티티 조회 (slot, store 정보용)
             SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
                     .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
 
             ReservationSlot slot = capacity.getSlot();
 
-            Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize()); 
+            // 예약 entity 생성 (상태 = confirmed)
+            Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize());
 
+            // DB에 새 행 insert (slot_capacities 안건들임 -> 락 경합X)
             reservationRepository.save(reservation);
 
             return ReservationResponse.from(reservation);
@@ -134,12 +135,13 @@ public class ReservationService {
             return;
         }
 
+        // 재고 key 없으면
+        // DB에서 최초 잔여 수량 조회
         Integer remaining = slotCapacityRepository.findRemainingTeamsById(capacityId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약입니다."));
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
 
-        // setIfAbsent를 쓴 이유? 키가 없을 때만 쓴다 - Race Condition 예방
+        // setIfAbsent를 쓴 이유? 원자적으로 키가 없을 때만 쓴다 - Race Condition 예방 (동시 요청이어도 한 번만 세팅됨)
         redisTemplate.opsForValue().setIfAbsent(stockKey, String.valueOf(remaining));
-
     }
 
     @Transactional (readOnly = true)

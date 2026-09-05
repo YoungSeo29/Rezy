@@ -7,6 +7,7 @@ import lombok.Getter;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 
 // 시간대 하나 + 버킷 목록
 @Getter
@@ -21,10 +22,11 @@ public class SlotResponse {
     }
 
     // 슬롯 하나를 시간+인원 목록으로 변환 - 인원수 오름차순으로 정렬해서 반환
-    public static SlotResponse from (ReservationSlot slot) {
+    // 잔여 수량은 Redis 값으로 채움
+    public static SlotResponse from (ReservationSlot slot, Map<String, Integer> stockMap) {
         List<SlotCapacityResponse> capacities = slot.getCapacities().stream()
                 .sorted(Comparator.comparingInt(c -> c.getPartySize()))
-                .map(SlotCapacityResponse::from)
+                .map(c -> SlotCapacityResponse.from(c, stockMap.get(c.getSlotCapacityId())))
                 .toList();
 
         return new SlotResponse(slot.getSlotDatetime(), capacities);
