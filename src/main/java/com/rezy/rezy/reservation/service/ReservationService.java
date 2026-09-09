@@ -63,7 +63,7 @@ public class ReservationService {
             throw new IllegalStateException("같은 날짜에는 하루에 한 건만 예약할 수 있습니다.");
         }
 
-        /* @@ 비관적 lock 코드
+        // @@ 비관적 lock 코드
         // 3) 예약할 버킷 확인
         // 락 획득 - 이 시점부터 Trx 종료까지. 같은 버킷 노리는 다른 요청은 대기
         SlotCapacity capacity = slotCapacityRepository.findByIdForUpdate(request.getSlotCapacityId())
@@ -80,8 +80,9 @@ public class ReservationService {
         reservationRepository.save(reservation);
 
         return ReservationResponse.from(reservation);
-         */
 
+
+        /* Redis 코드
         // 3) Redis 에 저장 할 key 완성
         String stockKey = RedisKeys.stock(capacityId);
 
@@ -125,6 +126,7 @@ public class ReservationService {
             redisTemplate.opsForValue().increment(stockKey);
             throw e;
         }
+         */
     }
 
     // Redis에 재고 키가 없으면 DB의 remainingTeams를 최초 1회 갖고옴.
