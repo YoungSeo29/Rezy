@@ -9,13 +9,6 @@ const SLOTS = [
 
 const tokens = new SharedArray('tokens', () => JSON.parse(open('./tokens.json')));
 
-
-// 집중형 - 인기 매장의 특정 시간대 하나에 요청이 몰리는 상황
-// 슬롯이 1개면 행 락 기준 병렬도가 1로 고정된다
-const SLOTS = [
-    'seed-cap-000000859',
-];
-
 const created   = new Counter('created_201');
 const conflict  = new Counter('conflict_409');
 const connErr   = new Counter('conn_error_0');

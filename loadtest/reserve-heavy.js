@@ -11,20 +11,6 @@ const SLOTS = [
 
 const tokens = new SharedArray('tokens', () => JSON.parse(open('./tokens.json')));
 
-
-const SLOTS = [
-    'seed-cap-000000859',
-    'seed-cap-000000862',
-    'seed-cap-000000865',
-    'seed-cap-000000868',
-    'seed-cap-000000871',
-    'seed-cap-000000874',
-    'seed-cap-000000877',
-    'seed-cap-000000880',
-    'seed-cap-000000883',
-    'seed-cap-000000886',
-];
-
 const created   = new Counter('created_201');
 const conflict  = new Counter('conflict_409');
 const connErr   = new Counter('conn_error_0');
