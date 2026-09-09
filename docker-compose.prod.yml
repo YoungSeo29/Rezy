@@ -1,0 +1,57 @@
+services:
+
+  mariadb:
+    image: mariadb:11.5
+    container_name: rezy-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: rezy
+    command: ["--max-connections=300"]     # 커넥션 풀 50 × 여유분
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: rezy-redis
+    command:
+      - redis-server
+      - --save
+      - ""                        # RDB 스냅샷 끔 - 측정 중 지연 방지
+      - --appendonly
+      - "no"
+      - --maxmemory-policy
+      - noeviction                # 재고 키가 evict 되면 정합성 깨짐
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  app:
+    build: .
+    container_name: rezy-app
+    ports:
+      - "8080:8080"
+    environment:
+      # 컨테이너 이름이 곧 호스트명이 된다 (localhost 아님)
+      DB_URL: jdbc:mariadb://mariadb:3306/rezy
+      DB_USERNAME: root
+      DB_PASSWORD: ${DB_PASSWORD}
+      SPRING_DATA_REDIS_HOST: redis
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION: ${JWT_EXPIRATION}
+      KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
+      KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  mariadb-data:
