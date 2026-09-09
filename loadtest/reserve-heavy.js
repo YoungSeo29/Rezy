@@ -2,6 +2,13 @@ import http from 'k6/http';
 import { Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
+const BASE = __ENV.BASE_URL || 'http://localhost:8080';
+
+const SLOTS = [
+    'seed-cap-01-2','seed-cap-02-2','seed-cap-03-2','seed-cap-04-2','seed-cap-05-2',
+    'seed-cap-06-2','seed-cap-07-2','seed-cap-08-2','seed-cap-09-2','seed-cap-10-2',
+];
+
 const tokens = new SharedArray('tokens', () => JSON.parse(open('./tokens.json')));
 
 
@@ -46,7 +53,7 @@ export default function () {
     const slot  = SLOTS[idx % SLOTS.length];
 
     const res = http.post(
-        'http://localhost:8080/api/reservations',
+        `${BASE}/api/reservations`,
         JSON.stringify({ slotCapacityId: slot }),
         { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } }
     );

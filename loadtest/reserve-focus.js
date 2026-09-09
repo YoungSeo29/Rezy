@@ -1,6 +1,11 @@
 import http from 'k6/http';
 import { Counter } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
+const BASE = __ENV.BASE_URL || 'http://localhost:8080';
+
+const SLOTS = [
+    'seed-cap-01-2',
+];
 
 const tokens = new SharedArray('tokens', () => JSON.parse(open('./tokens.json')));
 
