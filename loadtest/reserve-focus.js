@@ -37,7 +37,7 @@ export default function () {
     const slot  = SLOTS[0];
 
     const res = http.post(
-        'http://localhost:8080/api/reservations',
+        `${BASE}/api/reservations`,
         JSON.stringify({ slotCapacityId: slot }),
         { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` } }
     );
@@ -51,7 +51,7 @@ export default function () {
 
 export function setup() {
     const res = http.post(
-        'http://localhost:8080/api/reservations',
+        `${BASE}/api/reservations`,
         JSON.stringify({ slotCapacityId: SLOTS[0] }),
         { headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${tokens[0]}` } }
     );
