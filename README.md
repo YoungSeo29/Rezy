@@ -5,7 +5,7 @@ Restaurant reservation platform with concurrency control and performance tuning
 
 | Backend | Database | Infra |
 |---------|----------|-------|
-| Java 17 / Spring Boot 3.4.5 | MariaDB / Redis | AWS EC2 / RDS / Docker |
+| Java 17 / Spring Boot 3.4.5 | MariaDB / Redis | AWS EC2 / Docker / k6 |
 
 ## 🗂️ ERD
 <img width="1481" height="735" alt="Rezy-2026-07-22T00_21_49" src="https://github.com/user-attachments/assets/ceec94ee-9950-4949-a3c7-76d3fcf627a4" />
@@ -27,4 +27,36 @@ Restaurant reservation platform with concurrency control and performance tuning
 ### 1. 예약 슬롯 : 인원별 정원 분리 (1:N)
 한 시간대에 "2인 이하 3팀, 4인 이하 2팀"처럼 인원별로 정원이 나뉘기 때문에 단일 컬럼으로 표현 불가
 `ReservationSlot` -> `SlotCapacity`(인원 버킷 별 잔여 정원) **1:N 구조로 분리**
-인원 튜플 마다 `remaining_temas`를 두어 예약 시 해당 튜플만 차감하도록 설계
+인원 튜플 마다 `remaining_teams`를 두어 예약 시 해당 튜플만 차감하도록 설계
+
+## 성능 개선
+
+측정 환경: EC2 2대 분리 (앱+DB+Redis / k6 부하 생성기), 같은 VPC
+🔗 [상세 측정 과정](노션 링크)
+
+### 1. 동시 예약 정합성 — 락 방식 4가지 비교
+정원 3팀인 슬롯에 200VU 동시 요청 시 32건 생성 (Race Condition)
+락 없음 / synchronized / 비관적락 / 원자적 UPDATE 를 집중형·분산형으로 측정
+→ 확장성을 기준으로 비관적 락 채택
+
+### 2. Redis 원자적 차감으로 락 경합 제거
+비관적 락은 슬롯 하나당 한 건씩만 처리되어 처리량이 슬롯 수에 묶임
+Redis DECR로 재고 차감을 DB 밖으로 이동
+
+|        | 비관적 락 | Redis |
+|--------|----------|-------|
+| 분산형 (슬롯 10개) | 941 TPS | 942 TPS |
+| 집중형 (슬롯 1개)  | 774 TPS | 955 TPS |
+| 변화   | -18% | +1.4% |
+
+### 3. 슬롯 조회 N+1 제거
+시간대 수에 비례해 쿼리 증가 (22개 조회 시 24개 쿼리)
+→ fetch join 적용, 쿼리 2개로 고정
+
+### 4. 복합 인덱스로 조회 범위 축소
+(store_id, slot_datetime) 복합 인덱스 추가
+→ 스캔 행 660 → 22
+
+## CI/CD
+main 브랜치 push 시 GitHub Actions가 EC2에 접속해
+`git pull` → Docker 이미지 재빌드 → 컨테이너 교체까지 자동 수행
