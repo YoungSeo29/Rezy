@@ -32,6 +32,7 @@ public class ReservationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    // 마이페이지
     @GetMapping("/me")
     public ResponseEntity<List<MyReservationResponse>> getMyReservations(
             Authentication authentication,
