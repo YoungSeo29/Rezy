@@ -40,4 +40,4 @@ out/
 .env
 
 ### test dir ###
-src/test/
+src/test/java/com/rezy/rezy/loadtest/
