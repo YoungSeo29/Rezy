@@ -35,6 +35,11 @@ public class Reservation {
     @Column(name = "reservation_date", nullable = false)
     private LocalDateTime reservationDate;
 
+    // 실제 예약한 인원 버킷 slot_capacity_id = "10월 1일 17시의 4인석"
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "slot_capacity_id", nullable = false)
+    private SlotCapacity capacity;
+
     @Column(name = "party_size", nullable = false)
     private int partySize;
 
@@ -52,17 +57,26 @@ public class Reservation {
         }
     }
 
-    public static Reservation create (User user, Store store, ReservationSlot slot, int partySize) {
+    public static Reservation create (User user, SlotCapacity capacity) {
+        ReservationSlot slot = capacity.getSlot();
         Reservation reservation = new Reservation();
-        reservation.user = user;
-        reservation.store = store;
-        reservation.slot = slot;
-        reservation.reservationDate = slot.getSlotDatetime();
 
-        reservation.partySize = partySize;
+        reservation.user = user;
+        reservation.capacity = capacity;
+        reservation.slot = slot;
+        reservation.store = slot.getStore();
+        reservation.reservationDate = slot.getSlotDatetime();
+        reservation.partySize = capacity.getPartySize();
         reservation.status = ReservationStatus.CONFIRMED;
 
         return reservation;
+    }
+
+    public void cancel() {
+        if(this.status == ReservationStatus.CANCELLED) {
+            throw new IllegalStateException("이미 취소된 예약입니다.");
+        }
+        this.status = ReservationStatus.CANCELLED;
     }
 
 }

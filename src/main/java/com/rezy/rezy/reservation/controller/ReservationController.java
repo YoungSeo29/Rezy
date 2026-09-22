@@ -32,6 +32,17 @@ public class ReservationController {
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
+    // 예약 취소
+    @DeleteMapping("/{reservationId}")
+    public ResponseEntity<Void> cancelReservation(
+            Authentication authentication,
+            @PathVariable String reservationId
+    ) {
+        reservationService.cancelReservation(authentication.getName(), reservationId);
+
+        return ResponseEntity.noContent().build();
+    }
+
     // 마이페이지
     @GetMapping("/me")
     public ResponseEntity<List<MyReservationResponse>> getMyReservations(

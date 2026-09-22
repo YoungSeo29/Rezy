@@ -18,6 +18,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -111,7 +113,7 @@ public class ReservationService {
             ReservationSlot slot = capacity.getSlot();
 
             // 예약 entity 생성 (상태 = confirmed)
-            Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize());
+            Reservation reservation = Reservation.create(user, capacity);
 
             // DB에 새 행 insert (slot_capacities 안건들임 -> 락 경합X)
             reservationRepository.save(reservation);
@@ -125,6 +127,39 @@ public class ReservationService {
             redisTemplate.opsForValue().increment(stockKey);
             throw e;
         }
+    }
+
+    // 예약 취소
+    // 본인 확인 -> 상태변경 -> 커밋 성공후 Redis 재고 복구
+    @Transactional
+    public void cancelReservation(String userId, String reservationId) {
+
+        Reservation reservation = reservationRepository.findById(reservationId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약입니다."));
+
+        // [본인 확인] 본인 예약만 취소 가능
+        if (!reservation.getUser().getUserId().equals(userId)) {
+            throw new IllegalStateException("본인의 예약만 취소할 수 있습니다.");
+        }
+
+        // 상태 CANCELLED로 변경
+        reservation.cancel();
+
+        // Redis 키 만들기 - 재고 복원해야하니까
+        String stockKey = RedisKeys.stock(reservation.getCapacity().getSlotCapacityId());
+
+        // 재고 복구는 DB 커밋이 "성공한 뒤"에만 한다
+        // 커밋 전에 INCR 하면 → 커밋이 실패했을 때 예약은 살아있는데 재고만 늘어서 초과 예약이 생긴다
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                // 키가 없다 = Redis 가 아직 이 버킷 재고를 관리하지 않는 상태 → 건드리지 않는다
+                // (없는 키에 INCR 하면 "1" 이 새로 생겨서 재고가 틀어짐)
+                if (Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
+                    redisTemplate.opsForValue().increment(stockKey);
+                }
+            }
+        });
     }
 
     // Redis에 재고 키가 없으면 DB의 remainingTeams를 최초 1회 갖고옴.
