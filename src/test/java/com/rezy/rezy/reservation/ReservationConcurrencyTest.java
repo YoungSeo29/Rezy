@@ -68,6 +68,12 @@ class ReservationConcurrencyTest extends IntegrationTestSupport {
         // then
         assertThat(result.success()).isEqualTo(1);
         assertThat(reservationRepository.count()).isEqualTo(1);
+
+        // 실패한 쪽이 잡았던 재고는 돌려놔야 한다
+        // 점심 3 + 저녁 3 에서 성공한 1건만 빠지므로 합계는 5 여야 정상
+        int lunchLeft  = Integer.parseInt(redisTemplate.opsForValue().get(RedisKeys.stock(lunch)));
+        int dinnerLeft = Integer.parseInt(redisTemplate.opsForValue().get(RedisKeys.stock(dinner)));
+        assertThat(lunchLeft + dinnerLeft).isEqualTo(5);
     }
 
     // 여러 작업을 "동시에 출발"시키고, 성공 수와 실패 예외들을 모아서 돌려준다
