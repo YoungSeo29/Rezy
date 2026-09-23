@@ -7,11 +7,16 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Entity
-@Table(name = "reservations")
+@Table(name = "reservations",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_user_active_date",
+                columnNames = {"user_id", "active_date"}
+        ))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Reservation {
@@ -47,6 +52,12 @@ public class Reservation {
     @Enumerated(EnumType.STRING)
     private ReservationStatus status;
 
+    // 살아있는 예약의 날짜. 취소하면 NULL 이 됨
+    // (user_id, active_date) 유니크 제약 -> "하루 1건" 을 DB 가 강제
+    // MariaDB 는 NULL 중복허용함 -> 취소된 예약은 제약에 걸리지 않음
+    @Column(name = "active_date")
+    private LocalDate activeDate;
+
     @PrePersist
     public void prePersist() {
         if (reservationId == null) {
@@ -68,6 +79,7 @@ public class Reservation {
         reservation.reservationDate = slot.getSlotDatetime();
         reservation.partySize = capacity.getPartySize();
         reservation.status = ReservationStatus.CONFIRMED;
+        reservation.activeDate = slot.getSlotDatetime().toLocalDate();
 
         return reservation;
     }
@@ -77,6 +89,7 @@ public class Reservation {
             throw new IllegalStateException("이미 취소된 예약입니다.");
         }
         this.status = ReservationStatus.CANCELLED;
+        this.activeDate = null;  // 제약이 빠져야 취소 후 같은 날 재예약 가능
     }
 
 }
