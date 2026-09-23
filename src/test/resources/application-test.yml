@@ -1,0 +1,20 @@
+# 테스트 전용
+# 실제 DB/Redis 접속 정보는 Testcontainers(@ServiceConnection)가 덮어쓰므로 아래 DB 값은 형식만 맞춘 더미
+DB_URL: jdbc:mariadb://placeholder:3306/test
+DB_USERNAME: test
+DB_PASSWORD: test
+JWT_SECRET: test-secret-key-for-junit-only-must-be-long-enough!!
+JWT_EXPIRATION: 3600000
+KAKAO_CLIENT_ID: test
+KAKAO_CLIENT_SECRET: test
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop   # 테스트 시작 때 테이블 생성, 끝나면 삭제
+
+# (선택) p6spy SQL 로그 끄기 - 100 스레드 테스트 때 로그가 폭주함
+decorator:
+  datasource:
+    p6spy:
+      enable-logging: false
