@@ -102,6 +102,7 @@ public class ReservationService {
             throw new IllegalStateException("잔여 좌석이 없습니다.");
         }
 
+        /*
         // 4) 예약 저장
         // remainingTeams는 갱신X
         // update하는 순간 그 행에 X-lock 걸려서 Redis로 없앤 직렬화가 살아나기 때문.
@@ -127,6 +128,28 @@ public class ReservationService {
             redisTemplate.opsForValue().increment(stockKey);
             throw e;
         }
+         */
+
+        // "트랜잭션 끝나면 롤백 여부 확인해서, 롤백이면 INCR 해라" 라고 예약 걸어둠
+        // 기존 try/catch 는 커밋 시점의 실패를 놓쳤다
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    redisTemplate.opsForValue().increment(stockKey);
+                }
+            }
+        });
+
+        // 4) 예약 저장
+        // remainingTeams 는 갱신하지 않음
+        SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+
+        Reservation reservation = Reservation.create(user, capacity);
+        reservationRepository.save(reservation);
+
+        return ReservationResponse.from(reservation);
     }
 
     // 예약 취소
