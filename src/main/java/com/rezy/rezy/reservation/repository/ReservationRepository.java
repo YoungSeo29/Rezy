@@ -2,6 +2,7 @@ package com.rezy.rezy.reservation.repository;
 
 import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
+import com.rezy.rezy.reservation.repository.projection.CapacityConfirmedCountView;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -47,5 +48,14 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
             "where r.capacity.slotCapacityId = :capacityId and r.status = :status")
     long countByCapacityAndStatus(@Param("capacityId") String capacityId,
                                   @Param("status") ReservationStatus status);
+
+    // 버킷별 CONFIRMED 예약 수를 GROUP BY 한 번으로 집계
+    // 버킷마다 COUNT 를 날리면 버킷 수만큼 쿼리가 나가니까...
+    @Query("select r.capacity.slotCapacityId as capacityId, count(r) as confirmedCount " +
+            "from Reservation r " +
+            "where r.status = :status and r.capacity.slotCapacityId in :capacityIds " +
+            "group by r.capacity.slotCapacityId")
+    List<CapacityConfirmedCountView> countConfirmedGroupByCapacity(@Param("capacityIds") List<String> capacityIds,
+                                                                   @Param("status") ReservationStatus status);
 
 }

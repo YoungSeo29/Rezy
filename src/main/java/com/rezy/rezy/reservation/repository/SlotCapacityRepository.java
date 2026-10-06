@@ -1,6 +1,7 @@
 package com.rezy.rezy.reservation.repository;
 
 import com.rezy.rezy.reservation.domain.SlotCapacity;
+import com.rezy.rezy.reservation.repository.projection.CapacityStockView;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -9,6 +10,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 public interface SlotCapacityRepository extends JpaRepository<SlotCapacity, String> {
@@ -37,4 +39,12 @@ public interface SlotCapacityRepository extends JpaRepository<SlotCapacity, Stri
 
     @Query("select c.totalTeams from SlotCapacity c where c.slotCapacityId = :id")
     Optional<Integer> findTotalTeamsById(@Param("id") String id);
+
+    // 정합성 검증 대상 버킷 조회 - 지정한 기간 안의 슬롯에 달린 것만
+    // 지난 슬롯은 제외
+    @Query("select sc.slotCapacityId as slotCapacityId, sc.totalTeams as totalTeams " +
+            "from SlotCapacity sc join sc.slot s " +
+            "where s.slotDatetime >= :from and s.slotDatetime < :to")
+    List<CapacityStockView> findStockViewsBySlotDatetimeRange(@Param("from") LocalDateTime from,
+                                                              @Param("to") LocalDateTime to);
 }

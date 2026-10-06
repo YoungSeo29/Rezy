@@ -46,6 +46,8 @@ jwt:
 app:
   oauth2:
     redirect-uri: http://localhost:3000/oauth/callback
+  stock-reconciliation:
+    interval-ms: 600000      # 10분
 springdoc:
   auto-response-codes: false
 server:
