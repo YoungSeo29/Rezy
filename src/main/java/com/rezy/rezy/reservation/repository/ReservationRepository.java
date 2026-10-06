@@ -42,4 +42,10 @@ public interface ReservationRepository extends JpaRepository<Reservation, String
                                @Param("now") LocalDateTime now,
                                @Param("status") ReservationStatus status);
 
+    // Confirmed 예약 수 세기
+    @Query("select count(r) from Reservation r " +
+            "where r.capacity.slotCapacityId = :capacityId and r.status = :status")
+    long countByCapacityAndStatus(@Param("capacityId") String capacityId,
+                                  @Param("status") ReservationStatus status);
+
 }

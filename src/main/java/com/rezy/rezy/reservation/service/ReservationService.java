@@ -14,6 +14,7 @@ import com.rezy.rezy.user.UserRepository;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +26,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 // 실제 예약 생성용
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReservationService {
@@ -185,6 +187,8 @@ public class ReservationService {
     }
 
     // Redis에 재고 키가 없으면 DB의 remainingTeams를 최초 1회 갖고옴.
+    // remaining_teams는 예약 시 갱신X
+    // 총정원 - CONFIRMED 예약수 로 계산.
     private void loadStockIfAbsent(String stockKey, String capacityId) {
 
         // 이미 재고 key  있으면 return
@@ -192,10 +196,19 @@ public class ReservationService {
             return;
         }
 
-        // 재고 key 없으면
-        // DB에서 최초 잔여 수량 조회
-        Integer remaining = slotCapacityRepository.findRemainingTeamsById(capacityId)
+        // 총정원 (처음에 사장님이 설정한)
+        int totalTeams = slotCapacityRepository.findTotalTeamsById(capacityId)
                 .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+
+        long confirmed = reservationRepository.countByCapacityAndStatus(capacityId, ReservationStatus.CONFIRMED);
+
+        int remaining = totalTeams - (int) confirmed;
+
+        if(remaining < 0) {
+            log.error("[재고] 예약 수가 총정원을 초과함. capacityId={}, total={}, confirmed={}",
+                    capacityId, totalTeams, confirmed);
+            remaining = 0;
+        }
 
         // setIfAbsent를 쓴 이유? 원자적으로 키가 없을 때만 쓴다 - Race Condition 예방 (동시 요청이어도 한 번만 세팅됨)
         redisTemplate.opsForValue().setIfAbsent(stockKey, String.valueOf(remaining));

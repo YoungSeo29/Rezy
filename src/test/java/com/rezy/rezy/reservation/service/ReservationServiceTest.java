@@ -108,6 +108,41 @@ public class ReservationServiceTest {
         verify(reservationRepository, never()).save(any());
     }
 
+    @Test
+    @DisplayName("Redis 키가 소실되면 총정원에서 CONFIRMED 수를 빼서 복구하므로 만석이 유지된다")
+    void reloadStock_fromConfirmedCount() {
+        String stockKey = RedisKeys.stock(CAPACITY_ID);
+
+        // given - 검증은 다 통과
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(slotCapacityRepository.findSlotDatetimeById(CAPACITY_ID)).willReturn(Optional.of(SLOT_TIME));
+        given(reservationRepository.existsActiveOnDate(any(), any(), any(), any())).willReturn(false);
+
+        // Redis 재시작으로 키가 날아간 상황
+        given(redisTemplate.hasKey(stockKey)).willReturn(false);
+        given(redisTemplate.opsForValue()).willReturn(valueOperations);
+
+        // 정원 3팀, DB 에는 이미 CONFIRMED 3건 → 실제로는 만석
+        given(slotCapacityRepository.findTotalTeamsById(CAPACITY_ID)).willReturn(Optional.of(3));
+        given(reservationRepository.countByCapacityAndStatus(CAPACITY_ID, ReservationStatus.CONFIRMED))
+                .willReturn(3L);
+
+        // 0 으로 복구됐으므로 DECR 하면 -1
+        given(valueOperations.decrement(stockKey)).willReturn(-1L);
+
+        // when & then - 만석이므로 거부되어야 한다
+        assertThatThrownBy(() -> reservationService.reserve(USER_ID, request(CAPACITY_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("잔여 좌석이 없습니다.");
+
+        // 핵심 - remaining_teams(3) 가 아니라 0 으로 복구해야 한다
+        // 3 으로 복구하면 만석인 슬롯에 3팀을 더 받아 오버부킹이 발생한다
+        verify(valueOperations).setIfAbsent(stockKey, "0");
+
+        verify(valueOperations).increment(stockKey);
+        verify(reservationRepository, never()).save(any());
+    }
+
     // createLocal 로 만든 유저는 role = USER
     private User normalUser() {
         return User.createLocal("user@test.com", "pw");

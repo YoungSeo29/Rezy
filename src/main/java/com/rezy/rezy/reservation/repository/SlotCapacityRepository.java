@@ -34,4 +34,7 @@ public interface SlotCapacityRepository extends JpaRepository<SlotCapacity, Stri
     // Entity 전체가 아니라 숫자 하나만 가져옴
     @Query("select sc.remainingTeams from SlotCapacity sc where sc.slotCapacityId = :id")
     Optional<Integer> findRemainingTeamsById(@Param("id") String id);
+
+    @Query("select c.totalTeams from SlotCapacity c where c.slotCapacityId = :id")
+    Optional<Integer> findTotalTeamsById(@Param("id") String id);
 }
