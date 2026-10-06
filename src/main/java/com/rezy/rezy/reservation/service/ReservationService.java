@@ -2,7 +2,6 @@ package com.rezy.rezy.reservation.service;
 
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
-import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
 import com.rezy.rezy.reservation.dto.MyReservationResponse;

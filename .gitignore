@@ -41,3 +41,5 @@ out/
 
 ### test dir ###
 src/test/java/com/rezy/rezy/loadtest/
+
+.claude/settings.local.json
