@@ -1,22 +1,5 @@
 services:
 
-  redis:
-    image: redis:7.4-alpine
-    container_name: rezy-redis
-    command:
-      - redis-server
-      - --save
-      - ""                        # RDB 스냅샷 끔 - 측정 중 지연 방지
-      - --appendonly
-      - "no"
-      - --maxmemory-policy
-      - noeviction                # 재고 키가 evict 되면 정합성 깨짐
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   app:
     build: .
     container_name: rezy-app
@@ -27,11 +10,8 @@ services:
       DB_URL: ${DB_URL}        # 값은 서버의 .env 에서
       DB_USERNAME: root
       DB_PASSWORD: ${DB_PASSWORD}
-      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_HOST: ${REDIS_HOST}
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION: ${JWT_EXPIRATION}
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
-    depends_on:
-      redis:
-        condition: service_healthy
