@@ -1,0 +1,23 @@
+# DB 전용 서버에서 띄우는 구성
+# 앱 서버의 docker-compose.prod.yml 에서 mariadb 를 떼어낸 것
+services:
+
+  mariadb:
+    image: mariadb:11.5
+    container_name: rezy-mariadb
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_PASSWORD}
+      MARIADB_DATABASE: rezy
+    command: ["--max-connections=300"]
+    ports:
+      - "3306:3306"
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mariadb-data:
