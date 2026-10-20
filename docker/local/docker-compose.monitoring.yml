@@ -1,0 +1,23 @@
+name: rezy-monitoring
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: rezy-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus                                  # 데이터 보관 (볼륨)
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: rezy-grafana
+    ports:
+      - "3001:3000"
+    volumes:
+      - grafana-data:/var/lib/grafana                                # 대시보드 설정 보관
+
+volumes:
+  prometheus-data:
+  grafana-data:

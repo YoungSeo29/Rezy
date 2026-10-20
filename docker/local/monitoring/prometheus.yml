@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 15s          # 15초마다 긁기
+
+scrape_configs:
+  - job_name: rezy-app          # 이 대상 그룹의 이름 (라벨로 붙음)
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:9091']
