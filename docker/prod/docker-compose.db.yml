@@ -1,5 +1,7 @@
 # DB 전용 서버에서 띄우는 구성
-# 앱 서버의 docker-compose.prod.yml 에서 mariadb 를 떼어낸 것
+# 앱 서버의 docker-compose.app.yml 에서 mariadb 를 떼어낸 것
+name: rezy
+
 services:
 
   mariadb:

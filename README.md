@@ -184,7 +184,7 @@ EC2에 MariaDB, Redis를 각각 설치하는 대신 Compose 파일로 정의해 
 cp .env.example .env
 
 # 2. 실행
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker/prod/docker-compose.app.yml --env-file .env up -d --build
 ```
 
 필요 환경 변수

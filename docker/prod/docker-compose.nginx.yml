@@ -1,4 +1,6 @@
 # nginx 전용 서버
+name: rezy
+
 services:
 
   nginx:

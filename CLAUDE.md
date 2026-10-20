@@ -62,7 +62,7 @@ Spring Boot BOM이 고정하는 버전은 최신 Docker Engine과 프로토콜�
 
 ## 배포
 EC2에서:
-docker compose -f docker-compose.prod.yml up -d --build
+docker compose -f docker/prod/docker-compose.app.yml --env-file .env up -d --build
 
 `-f` 를 빼면 로컬 dev용 `docker-compose.yml`(redis만 있음)이 떠서
 app과 mariadb가 올라오지 않는다. 반드시 붙여라.

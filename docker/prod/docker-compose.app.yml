@@ -1,7 +1,9 @@
+name: rezy
+
 services:
 
   app:
-    build: .
+    build: ../..
     container_name: rezy-app
     ports:
       - "8080:8080"
