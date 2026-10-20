@@ -5,6 +5,7 @@ import com.rezy.rezy.auth.oauth.OAuth2SuccessHandler;
 import com.rezy.rezy.global.jwt.JwtAuthenticationFilter;
 import com.rezy.rezy.global.jwt.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
+import org.springframework.boot.actuate.autoconfigure.security.servlet.EndpointRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -37,6 +38,7 @@ public class SecurityConfig {
                 .httpBasic(basic -> basic.disable())
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(EndpointRequest.to("health", "prometheus")).permitAll()
                         .requestMatchers("/api/auth/**", "/oauth2/**", "/login/**", "/error","/swagger-ui/**", "/v3/api-docs/**").permitAll()
                         .anyRequest().authenticated()
                 )

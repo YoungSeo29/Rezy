@@ -5,6 +5,7 @@ services:
     container_name: rezy-app
     ports:
       - "8080:8080"
+      - "9091:9091"
     environment:
       # 컨테이너 이름이 곧 호스트명이 된다 (localhost 아님)
       DB_URL: ${DB_URL}        # 값은 서버의 .env 에서

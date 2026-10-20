@@ -51,6 +51,11 @@ dependencies {
     // 테스트용 실제 DB/Redis 를 Docker 컨테이너로 띄움
     testImplementation 'org.springframework.boot:spring-boot-testcontainers'
     testImplementation 'org.testcontainers:mariadb'
+
+    // prometheus
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    runtimeOnly 'io.micrometer:micrometer-registry-prometheus'
+
 }
 
 tasks.named('test') {

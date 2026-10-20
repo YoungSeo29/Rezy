@@ -43,3 +43,4 @@ out/
 src/test/java/com/rezy/rezy/loadtest/
 
 .claude/settings.local.json
+.DS_Store

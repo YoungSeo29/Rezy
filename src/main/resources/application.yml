@@ -53,3 +53,24 @@ springdoc:
 server:
   tomcat:
     accept-count: 1000
+    mbeanregistry:            # ← 추가: 톰캣 스레드 메트릭 켜기
+      enabled: true
+
+management:                   # ← 새로 추가 (들여쓰기 0칸)
+  server:
+    port: 9091
+  endpoints:
+    web:
+      exposure:
+        include: health, prometheus
+  metrics:
+    tags:
+      application: rezy
+    distribution:
+      percentiles-histogram:
+        "[http.server.requests]": true
+      slo:
+        "[http.server.requests]":
+          - 100ms
+          - 300ms
+          - 500ms
