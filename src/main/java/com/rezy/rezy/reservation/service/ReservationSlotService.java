@@ -1,10 +1,13 @@
 package com.rezy.rezy.reservation.service;
 
 import com.rezy.rezy.global.redis.RedisKeys;
+import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
 import com.rezy.rezy.reservation.dto.*;
+import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.ReservationSlotRepository;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
+import com.rezy.rezy.reservation.repository.projection.CapacityConfirmedCountView;
 import com.rezy.rezy.store.StoreRepository;
 import com.rezy.rezy.store.domain.Store;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +20,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.*;
+import java.util.stream.Collectors;
 
 // 슬롯 관리 & 조회용
 // Redis 키를 만들지 않음. 키가 없는 capacity면 DB에서 읽어와서 대체
@@ -26,6 +30,7 @@ public class ReservationSlotService {
 
     private final StoreRepository storeRepository;
     private final ReservationSlotRepository reservationSlotRepository;
+    private final ReservationRepository reservationRepository;
     private final StringRedisTemplate redisTemplate;
 
     // 예약 스케줄 생성 - 내 가게를 찾아 예약 스케줄 이미 있는지 체크 후
@@ -115,6 +120,7 @@ public class ReservationSlotService {
         Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
 
         // N+1 문제 방지를 위해 fetch join -> 한 번에 슬롯 + 인원 갖고옴
+        // 해당 날짜의 모든 시간대 + 모든 버킷이 반환
         List<ReservationSlot> slots = reservationSlotRepository
                 .findWithCapacities(
                         store, date.atStartOfDay(), date.atTime(LocalTime.MAX));
@@ -147,6 +153,7 @@ public class ReservationSlotService {
     }
 
     // 모든 슬롯에 딸린 모든 버킷의 잔여 수량을 Redis에서 한 방에 읽어옴
+    // Redis에 키가 없는 버킷은 DB에서 "총정원 - CONFIRMED 예약 수"로 계산해 채운다
     private Map<String, Integer> loadStocks(List<ReservationSlot> slots) {
 
         // CapacityId 싹 모으기
@@ -171,24 +178,41 @@ public class ReservationSlotService {
         // ex) values = ["200", "3", null, "150", null, "5"]   null은 아직 예약된 적이 없어서 Redis에 값이 없음
         List<String> values = redisTemplate.opsForValue().multiGet(keys);
 
-        if(values == null) {
+        // 값이 있는 버킷은 담고, 없는 버킷은 따로 모은다
+        List<String> missing = new ArrayList<>();
+
+        for (int i = 0; i < capacityIds.size(); i++) {
+            String value = (values == null) ? null : values.get(i);
+            if (value != null) {
+                stockMap.put(capacityIds.get(i), Integer.parseInt(value));
+            } else {
+                missing.add(capacityIds.get(i));
+            }
+        }
+
+        // 전부 Redis에 있으면 DB를 더 보지 않는다 (평소 경로)
+        if (missing.isEmpty()) {
             return stockMap;
         }
 
-        // Map으로 조립
-        // 키 없는 버킷(=예약된적 없는 버킷)은 null로 오는데, 그건 안담음
-        // ex)
-        // stockMap = {
-        //    "capacity-A": 200,
-        //    "capacity-B": 3,
-        //    "capacity-D": 150,
-        //    "capacity-F": 5
-        //}
-        for (int i = 0; i < capacityIds.size(); i++) {
-            String value = values.get(i);
-            if (value != null) {
-                stockMap.put(capacityIds.get(i), Integer.parseInt(value));
-            }
+        // 키 없는 버킷의 총정원
+        Map<String, Integer> totalTeamsMap = slots.stream()
+                .flatMap(slot -> slot.getCapacities().stream())
+                .collect(Collectors.toMap(SlotCapacity::getSlotCapacityId,
+                        SlotCapacity::getTotalTeams));
+
+        // 키 없는 버킷만 CONFIRMED 수를 센다 (쿼리 1회)
+        // remaining_teams 는 예약 시 갱신하지 않으므로 쓰면 안 된다
+        Map<String, Long> confirmedCounts = reservationRepository
+                .countConfirmedGroupByCapacity(missing, ReservationStatus.CONFIRMED)
+                .stream()
+                .collect(Collectors.toMap(CapacityConfirmedCountView::getCapacityId,
+                        CapacityConfirmedCountView::getConfirmedCount));
+
+        for (String capacityId : missing) {
+            int total = totalTeamsMap.get(capacityId);
+            int remaining = total - confirmedCounts.getOrDefault(capacityId, 0L).intValue();
+            stockMap.put(capacityId, Math.max(remaining, 0));
         }
 
         return stockMap;

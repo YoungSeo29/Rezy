@@ -22,7 +22,7 @@ public class SlotCapacityResponse {
     // Redis 잔여 값이 있으면 그걸 쓰고, 없으면 DB 값을 쓴다
     // key가 없다 = 해당 버킷에 예약이 한 번도 들어오지 않았다 = DB 값이 정확하다
     public static SlotCapacityResponse from(SlotCapacity capacity, Integer redisRemaining) {
-        int remaining = (redisRemaining != null) ? redisRemaining : capacity.getRemainingTeams();
+        int remaining = (redisRemaining != null) ? redisRemaining : 0;
         return new SlotCapacityResponse(
                 capacity.getSlotCapacityId(),
                 capacity.getPartySize(),
