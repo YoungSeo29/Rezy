@@ -14,10 +14,11 @@
     ],
     "deny": [
       "Read(./.env)",
+      "Edit(./src/**)",
+      "Write(./src/**)",
       "Bash(git push:*)",
       "Bash(git commit:*)",
-      "Bash(rm:*)",
-      "Bash(k6 run:*)"
+      "Bash(rm:*)"
     ]
   }
 }
