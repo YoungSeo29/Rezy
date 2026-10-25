@@ -47,7 +47,7 @@ app:
   oauth2:
     redirect-uri: http://localhost:3000/oauth/callback
   stock-reconciliation:
-    interval-ms: 600000      # 10분
+    interval-ms: 60000    # 1분
 springdoc:
   auto-response-codes: false
 server:

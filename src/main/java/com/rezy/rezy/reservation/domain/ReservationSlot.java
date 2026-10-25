@@ -12,7 +12,8 @@ import java.util.List;
 import java.util.UUID;
 
 @Entity
-@Table(name = "reservation_slots")
+@Table(name = "reservation_slots",
+        indexes = @Index(name = "idx_slot_datetime", columnList = "slot_datetime"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ReservationSlot {
