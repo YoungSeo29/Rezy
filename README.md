@@ -15,6 +15,8 @@
 | Database | MariaDB / Redis |
 | Infra | AWS EC2 (c5.xlarge 2대) / Docker Compose / GitHub Actions |
 | Test | JUnit 5 / Mockito / AssertJ / Testcontainers / k6 |
+| Monitoring | Actuator / Micrometer / Prometheus / Grafana |
+| Docs | Swagger (springdoc-openapi) |
 
 ---
 
@@ -137,6 +139,100 @@ ReservationSlot (시간대)
 
 ---
 
+## 🛡 장애 대응
+
+> Redis는 `--save "" --appendonly no` 로 영속성을 끈 상태다.
+> 재시작하면 재고 키가 전부 사라지므로, 복구 로직의 정확성이 전제 조건이다.
+
+### 1. Redis 키 소실 시 오버부킹
+
+**문제** Redis 재시작 후 재고가 총정원으로 리셋되어 이미 팔린 자리가 다시 팔림
+
+**원인** 키 복구 로직이 `slot_capacities.remaining_teams` 를 읽고 있었다.
+이 컬럼은 락을 피하려고 **예약 시 갱신하지 않기로 한 값**이라 항상 총정원이다.
+
+**해결** 팔린 자리 수의 유일한 근거를 `reservations` 의 CONFIRMED 행 수로 고정
+
+- `set` 이 아니라 `setIfAbsent` — 두 요청이 동시에 복구를 시도할 때
+  나중 요청이 앞선 요청의 `DECR` 을 덮어쓰는 것을 막는다
+- 조회 API의 잔여 수량 계산에도 같은 기준을 적용
+
+### 2. 앱 강제 종료로 인한 재고 누수 — 정합성 검증 배치
+
+**문제** `DECR` 성공 후 `INSERT` 전에 프로세스가 죽으면 재고만 깎이고 예약은 남지 않는다
+
+**재현** 대상 행에 X-lock 을 걸어 `INSERT` 를 멈춘 상태에서 동시 요청을 보내고 앱을 강제 종료
+→ `DECR` 은 통과하고 `INSERT` 에서 멈춘 요청들이 그대로 유실
+
+**해결** 주기적으로 Redis 재고와 DB 기준값을 대조하는 배치
+
+| 설계 | 이유 |
+|---|---|
+| 기준값 = `총정원 - CONFIRMED` | `remaining_teams` 는 신뢰하지 않는다 |
+| **같은 불일치가 2주기 연속일 때만 보정** | 진행 중인 예약 때문에 생긴 일시적 착시를 배제 |
+| **Lua CAS 로 교체** | 읽은 값 그대로일 때만 쓴다. 그 사이 예약이 끼면 실패시키고 다음 주기로 미룬다 |
+| 트랜잭션을 걸지 않음 | 커넥션 풀을 API와 공유하므로 오래 쥐지 않는다 |
+| 키가 없으면 건너뜀 | 다음 예약 때 복구 로직이 올바른 값으로 만든다 |
+
+**부하** 1회 실행 8.9ms / 점유율 0.015% (`tasks_scheduled_execution_seconds` 실측)
+→ 조회 쿼리 2회 + Redis 왕복 1회로 고정했고, 버킷 수가 늘어도 왕복 수는 변하지 않는다
+
+### 3. Redis 지속 다운이 무관한 API까지 전파
+
+**문제** Redis가 죽자 **Redis를 쓰지 않는 로그인 API까지** 13.6초 뒤 500으로 실패
+
+**원인** Lettuce 기본 command timeout 이 60초다.
+
+```
+Redis 다운 → 명령이 60초간 안 끝남 → 트랜잭션 안에서 DB 커넥션을 60초 점유
+         → 풀(50) 고갈, 대기열 82 → 무관한 요청이 커넥션을 못 받고 실패
+```
+
+**해결**
+
+| 단계 | 내용 |
+|---|---|
+| 타임아웃 | `timeout: 300ms` / `connect-timeout: 300ms` — 60초를 0.3초로 |
+| 조회 | Redis 실패 시 DB 폴백 (`총정원 - CONFIRMED`) |
+| 예약 | **폴백하지 않고 503 + `Retry-After`** |
+
+예약을 폴백하지 않는 이유 — 재고 차감의 원자성은 `DECR` 에만 있다.
+DB로 계산해 차감하면 동시 요청이 같은 값을 읽어 오버부킹이 발생한다.
+**읽기는 살리고 쓰기는 거절한다.**
+
+**결과** (슬롯조회 80VU + 로그인 10/s, Redis 61초 다운)
+
+| | 개선 전 | 개선 후 |
+|---|---|---|
+| 조회 | 매달림 → 응답 없음 | **0.31s / 200** |
+| 예약 | 매달림 → 응답 없음 | **0.34s / 503** |
+| 로그인 (Redis 미사용) | **13.58s / 500**, 5xx 51건 | **0.09s / 200**, 5xx 0건 |
+| 커넥션 대기 최대 | 82 (30초 이상 지속) | **3** (2초) |
+| 실패율 | — | **0.00%** (22,720건) |
+
+**남은 문제**
+- Redis 복구 후 재연결까지 32.6초간 예약 불가 (장애 감지는 1.7초)
+- 다운 중 커넥션 사용량이 50/50 으로 포화 — 트래픽이 더 늘면 대기가 발생한다
+
+
+## 📊 모니터링
+
+Actuator + Micrometer 로 메트릭을 노출하고 Prometheus(1초 수집) · Grafana 로 관측.
+
+| 패널 | 용도 |
+|---|---|
+| HikariCP active / pending | 커넥션 고갈과 대기열 — 장애 전파의 직접 증거 |
+| Tomcat busy threads | 스레드 점유 |
+| API별 p95 | `histogram_quantile` |
+| API별 응답 코드 | 장애 구간에 200/500/503 분포 |
+
+도입 이유는 **추정을 측정으로 바꾸기 위해서다.**
+배치의 DB 점유율을 로그 간격으로 어림잡았을 때와 `tasks_scheduled_execution_seconds`
+실측값은 15배 차이가 났다.
+
+> 대시보드는 패널 폭에 맞춰 다운샘플링하므로 1초짜리 스파이크를 놓친다.
+> 피크 값은 `max_over_time` 으로 따로 확인했다.
+
 ## 🧪 테스트
 
 단위 4개 / 통합 8개 — GitHub Actions에서 push마다 자동 수행
@@ -164,6 +260,10 @@ Testcontainers로 실제 MariaDB · Redis 컨테이너를 띄워 검증
 ---
 
 ## 🚀 개발 환경 및 배포
+
+**서버 구성**
+nginx(LB) / 애플리케이션 2대 / DB·Redis / 부하 생성기 — EC2 분리
+compose 파일은 `docker/local`, `docker/prod` 로 분리 (prod는 app·db·nginx 3개)
 
 **Docker Compose**
 EC2에 MariaDB, Redis를 각각 설치하는 대신 Compose 파일로 정의해 실행.
@@ -201,7 +301,7 @@ KAKAO_CLIENT_SECRET
 
 ## 📌 남은 과제
 
-- DB `remaining_teams` 동기화 배치 (Redis 도입으로 실시간 값이 아니게 됨)
+- Redis 복구 후 재연결 지연(32.6초) 단축
+- 서버 2대 + nginx 구성에서의 정합성 검증 (구성은 완료, 측정 미실시)
 - 지난 날짜 슬롯의 Redis 키 정리 배치
 - Redis 왕복 2회(`hasKey` + `DECR`)를 Lua 스크립트로 1회 단축
-- 서버 2대 + nginx 구성으로 스케일 아웃 시 정합성 검증
