@@ -11,6 +11,8 @@ import com.rezy.rezy.reservation.repository.projection.CapacityConfirmedCountVie
 import com.rezy.rezy.store.StoreRepository;
 import com.rezy.rezy.store.domain.Store;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,7 @@ import java.util.stream.Collectors;
 
 // 슬롯 관리 & 조회용
 // Redis 키를 만들지 않음. 키가 없는 capacity면 DB에서 읽어와서 대체
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReservationSlotService {
@@ -176,7 +179,14 @@ public class ReservationSlotService {
 
         // Redis에서 한번에 조회 (multiGet)
         // ex) values = ["200", "3", null, "150", null, "5"]   null은 아직 예약된 적이 없어서 Redis에 값이 없음
-        List<String> values = redisTemplate.opsForValue().multiGet(keys);
+        List<String> values;
+        try {
+            values = redisTemplate.opsForValue().multiGet(keys);
+        } catch (DataAccessException e) {
+            // Redis 가 죽어으면 조회는 DB 답변으로 대체
+            log.warn("[조회] Redis 조회 실패 - 전부 DB 로 계산한다. {}", e.toString());
+            values = null;
+        }
 
         // 값이 있는 버킷은 담고, 없는 버킷은 따로 모은다
         List<String> missing = new ArrayList<>();

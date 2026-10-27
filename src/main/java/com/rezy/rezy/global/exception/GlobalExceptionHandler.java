@@ -1,6 +1,9 @@
 package com.rezy.rezy.global.exception;
 
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.redis.RedisConnectionFailureException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -39,6 +42,15 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, String>> handleDataIntegrity(DataIntegrityViolationException e) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(Map.of("message", "같은 날짜에는 하루에 한 건만 예약할 수 있습니다."));
+    }
+
+    // Redis 일시 장애 → 503 Service Unavailable
+    // 타임아웃(QueryTimeoutException) / 연결 끊김(RedisConnectionFailureException)
+    @ExceptionHandler({RedisConnectionFailureException.class, QueryTimeoutException.class})
+    public ResponseEntity<Map<String, String>> handleRedisDown(Exception e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .header(HttpHeaders.RETRY_AFTER, "5")
+                .body(Map.of("message", "일시적인 오류입니다. 잠시 후 다시 시도해주세요."));
     }
 
 }

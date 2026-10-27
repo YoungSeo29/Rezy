@@ -20,6 +20,8 @@ spring:
     redis:
       host: localhost
       port: 6379
+      timeout: 300ms            # 명령 응답 대기
+      connect-timeout: 300ms    # 연결 수립 대기
   security:
     oauth2:
       client:
