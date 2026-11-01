@@ -27,6 +27,13 @@ public class GlobalExceptionHandler {
         return ResponseEntity.badRequest().body(Map.of("message", e.getMessage()));
     }
 
+    // 조회 대상 없음 → 404 Not Found
+    // 요청은 제대로 왔는데 그 대상이 없는 경우다. 잘못 보낸 요청(400)과 구분한다
+    @ExceptionHandler(NotFoundException.class)
+    public ResponseEntity<Map<String, String>> handleNotFound(NotFoundException e) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", e.getMessage()));
+    }
+
     // @Valid 검증 실패 → 400 + 어떤 필드가 왜 틀렸는지
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Map<String, String>> handleValidation(MethodArgumentNotValidException e) {

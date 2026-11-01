@@ -1,5 +1,6 @@
 package com.rezy.rezy.reservation.service;
 
+import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
@@ -47,7 +48,7 @@ public class ReservationService {
 
         // 1)  예약자 조회 + USER 권한인지 확인
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
 
         if(user.getRole() != UserRole.USER) {
             throw new IllegalStateException("예약은 일반 사용자만 가능합니다.");
@@ -56,7 +57,7 @@ public class ReservationService {
         // 2-1) 날짜만 조회 - "하루 1건"검증에 쓸 날짜만 가져오기
         LocalDateTime slotDatetime = slotCapacityRepository
                 .findSlotDatetimeById(capacityId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         LocalDate date = slotDatetime.toLocalDate();
 
@@ -70,7 +71,7 @@ public class ReservationService {
         // 3) 예약할 버킷 확인
         // 락 획득 - 이 시점부터 Trx 종료까지. 같은 버킷 노리는 다른 요청은 대기
         SlotCapacity capacity = slotCapacityRepository.findByIdForUpdate(request.getSlotCapacityId())
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         ReservationSlot slot = capacity.getSlot();
 
@@ -110,7 +111,7 @@ public class ReservationService {
         try{
             // 예약 저장에 필요한 capacity 엔티티 조회 (slot, store 정보용)
             SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
-                    .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+                    .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
             ReservationSlot slot = capacity.getSlot();
 
@@ -145,7 +146,7 @@ public class ReservationService {
         // 4) 예약 저장
         // remainingTeams 는 갱신하지 않음
         SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         Reservation reservation = Reservation.create(user, capacity);
         reservationRepository.save(reservation);
@@ -159,7 +160,7 @@ public class ReservationService {
     public void cancelReservation(String userId, String reservationId) {
 
         Reservation reservation = reservationRepository.findById(reservationId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약입니다."));
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약입니다."));
 
         // [본인 확인] 본인 예약만 취소 가능
         if (!reservation.getUser().getUserId().equals(userId)) {
@@ -198,7 +199,7 @@ public class ReservationService {
 
         // 총정원 (처음에 사장님이 설정한)
         int totalTeams = slotCapacityRepository.findTotalTeamsById(capacityId)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 예약 옵션입니다."));
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         long confirmed = reservationRepository.countByCapacityAndStatus(capacityId, ReservationStatus.CONFIRMED);
 

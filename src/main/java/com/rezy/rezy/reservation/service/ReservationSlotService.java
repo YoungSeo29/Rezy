@@ -1,5 +1,6 @@
 package com.rezy.rezy.reservation.service;
 
+import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
@@ -120,7 +121,7 @@ public class ReservationSlotService {
     @Transactional(readOnly = true)
     public DailySlotResponse getSlotsByDate(String storeId, LocalDate date) {
 
-        Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
+        Store store = storeRepository.findById(storeId).orElseThrow(() -> new NotFoundException("존재하지 않는 가게입니다."));
 
         // N+1 문제 방지를 위해 fetch join -> 한 번에 슬롯 + 인원 갖고옴
         // 해당 날짜의 모든 시간대 + 모든 버킷이 반환
@@ -232,7 +233,7 @@ public class ReservationSlotService {
     @Transactional(readOnly = true)
     public List<LocalDate> getAvailableDates(String storeId, int year, int month) {
 
-        Store store = storeRepository.findById(storeId).orElseThrow(() -> new IllegalArgumentException("존재하지 않는 가게입니다."));
+        Store store = storeRepository.findById(storeId).orElseThrow(() -> new NotFoundException("존재하지 않는 가게입니다."));
 
         LocalDate first = LocalDate.of(year, month, 1);
         LocalDate last = first.withDayOfMonth(first.lengthOfMonth());

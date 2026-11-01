@@ -1,5 +1,6 @@
 package com.rezy.rezy.user;
 
+import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
 import com.rezy.rezy.user.dto.MyProfileResponse;
@@ -16,7 +17,7 @@ public class UserService {
     @Transactional
     public void completeProfile(String userId, String nickname, UserRole role) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
 
         user.completeProfile(nickname, role);
     }
@@ -24,7 +25,7 @@ public class UserService {
     @Transactional (readOnly = true)
     public MyProfileResponse getMyProfile(String userId) {
         User user = userRepository.findById(userId)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+                .orElseThrow(() -> new NotFoundException("사용자를 찾을 수 없습니다."));
 
         return MyProfileResponse.from(user);
     }
