@@ -1,0 +1,102 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_PROMETHEUS",
+      "label": "Prometheus",
+      "description": "",
+      "type": "datasource",
+      "pluginId": "prometheus",
+      "pluginName": "Prometheus"
+    }
+  ],
+  "title": "Rezy 장애 주입 (chaos)",
+  "uid": "rezy-chaos",
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "5s",
+  "time": { "from": "now-5m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "1. 커넥션 풀 (HikariCP)",
+      "description": "active 가 max(50) 에 붙고 pending 이 쌓이면 = Redis 를 기다리는 요청이 DB 커넥션을 쥐고 있다는 뜻",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "min": 0 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "대기중(pending)" },
+            "properties": [ { "id": "color", "value": { "mode": "fixed", "fixedColor": "red" } } ] },
+          { "matcher": { "id": "byName", "options": "최대(max)" },
+            "properties": [ { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+                            { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } } ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "hikaricp_connections_active{application=\"rezy\"}", "legendFormat": "사용중(active)" },
+        { "refId": "B", "expr": "hikaricp_connections_pending{application=\"rezy\"}", "legendFormat": "대기중(pending)" },
+        { "refId": "C", "expr": "hikaricp_connections_max{application=\"rezy\"}", "legendFormat": "최대(max)" }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "2. 톰캣 스레드",
+      "description": "busy 가 max(200) 에 붙으면 = 모든 API 가 영향을 받는 상태",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": { "custom": { "lineWidth": 2, "fillOpacity": 10, "showPoints": "never" }, "min": 0 },
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "최대(max)" },
+            "properties": [ { "id": "custom.lineStyle", "value": { "fill": "dash", "dash": [10, 10] } },
+                            { "id": "color", "value": { "mode": "fixed", "fixedColor": "text" } } ] }
+        ]
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max", "lastNotNull"] } },
+      "targets": [
+        { "refId": "A", "expr": "tomcat_threads_busy_threads{application=\"rezy\"}", "legendFormat": "사용중(busy)" },
+        { "refId": "B", "expr": "tomcat_threads_current_threads{application=\"rezy\"}", "legendFormat": "생성됨(current)" },
+        { "refId": "C", "expr": "tomcat_threads_config_max_threads{application=\"rezy\"}", "legendFormat": "최대(max)" }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "3. API 별 p95 응답시간",
+      "description": "주의 - 끝난 요청만 집계된다. 매달려 있는 요청은 여기 안 나온다",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "s", "custom": { "lineWidth": 2, "fillOpacity": 0, "showPoints": "never" }, "min": 0 },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max"] } },
+      "targets": [
+        { "refId": "A",
+          "expr": "histogram_quantile(0.95, sum by (le, uri) (rate(http_server_requests_seconds_bucket{application=\"rezy\"}[15s])))",
+          "legendFormat": "{{uri}}" }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "4. API 별 응답 코드 (초당)",
+      "description": "수정 전에는 매달리다 끊기고, 수정 후에는 에러가 빠르게 나가야 한다",
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 9 },
+      "fieldConfig": {
+        "defaults": { "unit": "reqps", "custom": { "lineWidth": 2, "fillOpacity": 20, "stacking": { "mode": "normal" }, "showPoints": "never" }, "min": 0 },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["max"] } },
+      "targets": [
+        { "refId": "A",
+          "expr": "sum by (uri, status) (rate(http_server_requests_seconds_count{application=\"rezy\"}[15s]))",
+          "legendFormat": "{{uri}} [{{status}}]" }
+      ]
+    }
+  ]
+}
