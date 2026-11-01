@@ -6,6 +6,13 @@
 - Spring Boot 3.4.5 / Java 17 / Gradle
 - MariaDB 11.5 / Redis 7.4
 - Docker Compose / AWS EC2 / GitHub Actions
+- 
+## 코드 스타일
+새 코드는 기존 코드 톤에 맞춘다. 작성 전에 아래 파일을 먼저 읽어라.
+- ReservationController, StoreService, StockReconciliationBatch, StockReconciliationBatchTest
+
+- 주석은 한국어로 짧게, "왜 이렇게 했는지"만 쓴다
+- 예외 : 대상 없음·잘못된 입력은 IllegalArgumentException, 규칙 위반은 IllegalStateException (한국어 메시지)
 
 ## 환경변수
 `.env` + spring-dotenv 로 주입한다.
