@@ -22,6 +22,9 @@ spring:
       port: 6379
       timeout: 300ms            # 명령 응답 대기
       connect-timeout: 300ms    # 연결 수립 대기
+    web:
+      pageable:
+        max-page-size: 50
   security:
     oauth2:
       client:

@@ -2,6 +2,7 @@ package com.rezy.rezy.global.exception;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.QueryTimeoutException;
+import org.springframework.data.mapping.PropertyReferenceException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(NotFoundException.class)
     public ResponseEntity<Map<String, String>> handleNotFound(NotFoundException e) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of("message", e.getMessage()));
+    }
+
+    // 정렬 기준에 없는 필드명을 넘김 (?sort=없는필드) → 400
+    @ExceptionHandler(PropertyReferenceException.class)
+    public ResponseEntity<Map<String, String>> handlePropertyReference(PropertyReferenceException e) {
+        return ResponseEntity.badRequest()
+                .body(Map.of("message", "정렬할 수 없는 항목입니다: " + e.getPropertyName()));
     }
 
     // @Valid 검증 실패 → 400 + 어떤 필드가 왜 틀렸는지
