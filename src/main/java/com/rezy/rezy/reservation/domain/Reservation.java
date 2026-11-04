@@ -84,9 +84,13 @@ public class Reservation {
         return reservation;
     }
 
-    public void cancel() {
+    public void cancel(LocalDateTime now) {
         if(this.status == ReservationStatus.CANCELLED) {
             throw new IllegalStateException("이미 취소된 예약입니다.");
+        }
+
+        if(!this.reservationDate.isAfter(now)) {
+            throw new IllegalStateException("이미 지난 예약은 취소할 수 없습니다.");
         }
         this.status = ReservationStatus.CANCELLED;
         this.activeDate = null;  // 제약이 빠져야 취소 후 같은 날 재예약 가능

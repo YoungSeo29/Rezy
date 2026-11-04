@@ -59,6 +59,14 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
             "and w.offerExpiresAt <= :now")
     int expireOffer(@Param("id") String id, @Param("now") LocalDateTime now);
 
+    // 마감 시각이 지난 슬롯의 WAITING 을 일괄 만료
+    @Modifying
+    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.EXPIRED " +
+            "where w.status = com.rezy.rezy.reservation.domain.WaitingStatus.WAITING " +
+            "and w.capacity.slotCapacityId in (select sc.slotCapacityId from SlotCapacity sc " +
+            "where sc.slot.slotDatetime < :closedBefore)")
+    int expireWaitingOfSlotsBefore(@Param("closedBefore") LocalDateTime closedBefore);
+
     @Query("select w.waitingId from WaitingEntry w " +
             "where w.status = com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED " +
             "and w.offerExpiresAt <= :now")

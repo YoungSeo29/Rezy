@@ -3,6 +3,7 @@ package com.rezy.rezy.reservation.service;
 import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
+import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
 import com.rezy.rezy.reservation.domain.WaitingEntry;
@@ -40,8 +41,7 @@ public class WaitingService {
     // 취소로 비워진 자리 1개를 넘긴다 - 취소 트랜잭션 안에서 불린다
     @Transactional(propagation = Propagation.MANDATORY)
     public void releaseSeat(String capacityId) {
-        lockCapacity(capacityId);
-        handOver(capacityId);
+        handOver(lockCapacity(capacityId));
     }
 
     // 확정 기회 만료 → 다음 번호로. 배치가 건마다 따로 부른다 (커넥션을 길게 안 쥐려고)
@@ -51,15 +51,22 @@ public class WaitingService {
         String capacityId = waitingEntryRepository.findCapacityIdById(waitingId)
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 대기입니다."));
 
-        lockCapacity(capacityId);
+        SlotCapacity capacity = lockCapacity(capacityId);
 
         // 조건부 갱신 - 배치가 목록을 읽은 뒤 확정이 끼어들었으면 0건
         if (waitingEntryRepository.expireOffer(waitingId, LocalDateTime.now()) == 0) {
             return false;
         }
 
-        handOver(capacityId);
+        handOver(capacity);
         return true;
+    }
+
+    // 마감된 슬롯의 대기는 더 이상 자리를 받을 수 없으므로 한 번에 끝낸다
+    // OFFERED 는 건드리지 않는다 - 기한이 지나면 expireOffer 가 정리한다
+    @Transactional
+    public int closeEndedLines(LocalDateTime now) {
+        return waitingEntryRepository.expireWaitingOfSlotsBefore(now.plus(ReservationSlot.BOOKING_CUTOFF));
     }
 
     // OFFERED 상태에서 확정 - 넘겨받은 자리를 소비하므로 Redis 재고는 건드리지 않는다
@@ -74,6 +81,10 @@ public class WaitingService {
         }
 
         SlotCapacity capacity = lockCapacity(entry.getCapacity().getSlotCapacityId());
+
+        if (ReservationSlot.isBookingClosed(capacity.getSlot().getSlotDatetime(), LocalDateTime.now())) {
+            throw new IllegalStateException("예약이 마감된 시간대입니다.");
+        }
 
         // 하루 1건 - 걸리면 아무것도 안 바꾸고 끝낸다. 최종 방어는 유니크 제약
         LocalDate date = capacity.getSlot().getSlotDatetime().toLocalDate();
@@ -99,15 +110,21 @@ public class WaitingService {
     }
 
     // 대기 1번이 있으면 자리를 직접 넘기고(재고 0 유지 → 새로 온 사람이 못 가로챔), 줄이 비었으면 공용 재고로
-    private void handOver(String capacityId) {
+    // 마감된 슬롯도 공용 재고로
+    private void handOver(SlotCapacity capacity) {
 
-        Optional<WaitingEntry> head = waitingEntryRepository
-                .findLineForUpdate(capacityId, WaitingStatus.WAITING, PageRequest.of(0, 1))
-                .stream().findFirst();
+        String capacityId = capacity.getSlotCapacityId();
+        LocalDateTime now = LocalDateTime.now();
 
-        if (head.isPresent()) {
-            head.get().offer(LocalDateTime.now());
-            return;
+        if (!ReservationSlot.isBookingClosed(capacity.getSlot().getSlotDatetime(), now)) {
+            Optional<WaitingEntry> head = waitingEntryRepository
+                    .findLineForUpdate(capacityId, WaitingStatus.WAITING, PageRequest.of(0, 1))
+                    .stream().findFirst();
+
+            if (head.isPresent()) {
+                head.get().offer(now);
+                return;
+            }
         }
 
         String stockKey = RedisKeys.stock(capacityId);

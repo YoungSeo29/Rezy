@@ -53,4 +53,13 @@ public class WaitingQueueScheduler {
 
         log.info("[대기열] 만료 {} / 스킵 {} / 실패 {}", expired, skipped, failed);
     }
+
+    // 마감된 슬롯의 줄을 닫는다. 안 닫으면 지난 슬롯에도 WAITING 이 영원히 남는다
+    @Scheduled(fixedDelayString = "${app.waiting-queue.interval-ms:10000}")
+    public void closeEndedLines() {
+        int closed = waitingService.closeEndedLines(LocalDateTime.now());
+        if (closed > 0) {
+            log.info("[대기열] 마감된 슬롯 대기 {}건 종료", closed);
+        }
+    }
 }

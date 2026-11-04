@@ -3,6 +3,7 @@ package com.rezy.rezy.reservation.service;
 import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
+import com.rezy.rezy.reservation.domain.ReservationSlot;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
 import com.rezy.rezy.reservation.domain.WaitingEntry;
@@ -27,7 +28,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
-import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -43,9 +43,6 @@ public class ReservationService {
     private final ReservationRepository reservationRepository;
     private final WaitingEntryRepository waitingEntryRepository;
     private final WaitingService waitingService;
-
-    // 1시간 전부터는 예약 불가능
-    private static final Duration RESERVE_CUTOFF = Duration.ofHours(1);
 
     // Redis 접근용 - 문자열 전용이라서 DECR/INCR 사용 가능
     private final StringRedisTemplate redisTemplate;
@@ -71,7 +68,7 @@ public class ReservationService {
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         // 2-2) 임박 슬롯(1시간 전)은 예약도 줄서기도 안 받음
-        if (slotDatetime.isBefore(LocalDateTime.now().plus(RESERVE_CUTOFF))) {
+        if (ReservationSlot.isBookingClosed(slotDatetime, LocalDateTime.now())) {
             throw new IllegalStateException("시작 1시간 전부터는 예약할 수 없습니다.");
         }
 
@@ -159,7 +156,7 @@ public class ReservationService {
         }
 
         // 상태 CANCELLED로 변경
-        reservation.cancel();
+        reservation.cancel(LocalDateTime.now());
 
         // 대기 줄이 있으면 1번에게 직접 넘기고 INCR 안 함, 줄이 비었으면 커밋 후 INCR
         waitingService.releaseSeat(reservation.getCapacity().getSlotCapacityId());

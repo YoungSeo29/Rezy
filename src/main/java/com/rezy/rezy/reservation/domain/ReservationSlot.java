@@ -6,6 +6,7 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -17,6 +18,9 @@ import java.util.UUID;
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class ReservationSlot {
+
+    // 시작 1시간 전 마감 - 예약, 줄서기, 자리 넘기기, 확정이 모두 이 기준을 따른다
+    public static final Duration BOOKING_CUTOFF = Duration.ofHours(1);
 
     @Id
     @Column(name = "slot_id", columnDefinition = "VARCHAR(36)")
@@ -46,6 +50,11 @@ public class ReservationSlot {
         slot.store = store;
         slot.slotDatetime = slotDatetime;
         return slot;
+    }
+
+    // 예약 경로마다 엔티티를 들고 있지 않아서 시각만 받는다
+    public static boolean isBookingClosed(LocalDateTime slotDatetime, LocalDateTime now) {
+        return slotDatetime.isBefore(now.plus(BOOKING_CUTOFF));
     }
 
     // 인원수 버킷 추가
