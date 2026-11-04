@@ -18,3 +18,5 @@ services:
       JWT_EXPIRATION: ${JWT_EXPIRATION}
       KAKAO_CLIENT_ID: ${KAKAO_CLIENT_ID}
       KAKAO_CLIENT_SECRET: ${KAKAO_CLIENT_SECRET}
+      # 이미지 기본값이 UTC. 슬롯 시각은 KST 로 저장되므로 now() 도 KST 여야 1시간 전 마감 등이 맞는다
+      TZ: Asia/Seoul
