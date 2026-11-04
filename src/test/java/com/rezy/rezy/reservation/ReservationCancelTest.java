@@ -13,6 +13,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -71,6 +72,21 @@ class ReservationCancelTest extends IntegrationTestSupport {
 
         // 4 가 되면 정원(3)보다 많이 팔 수 있게 된다
         assertThat(redisTemplate.opsForValue().get(stockKey)).isEqualTo("3");
+    }
+
+    @Test
+    @DisplayName("이미 지난 예약은 취소할 수 없고, 재고도 그대로다")
+    void cancelPast_throws() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 3);
+        User user = saveUser("past@test.com");
+        String reservationId = reservationService.reserve(user.getUserId(), request(capacityId))
+                .getReservation().getReservationId();
+        moveSlotTo(capacityId, LocalDateTime.now().minusHours(1));
+
+        assertThatThrownBy(() -> reservationService.cancelReservation(user.getUserId(), reservationId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("이미 지난 예약은 취소할 수 없습니다.");
+        assertThat(redisTemplate.opsForValue().get(RedisKeys.stock(capacityId))).isEqualTo("2");
     }
 
     @Test

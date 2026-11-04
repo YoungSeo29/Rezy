@@ -17,6 +17,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.testcontainers.containers.GenericContainer;
@@ -58,6 +59,7 @@ public abstract class IntegrationTestSupport {
     @Autowired protected ReservationRepository reservationRepository;
     @Autowired protected WaitingEntryRepository waitingEntryRepository;
     @Autowired protected StringRedisTemplate redisTemplate;
+    @Autowired protected JdbcTemplate jdbcTemplate;
 
     // 테스트끼리 데이터가 섞이지 않도록 매번 전부 비운다 (FK 순서대로)
     @AfterEach
@@ -106,6 +108,15 @@ public abstract class IntegrationTestSupport {
     // 예약은 시작 1시간 전까지만 받으므로, 예약하는 테스트는 내일 슬롯으로 잡는다
     protected static LocalDateTime tomorrowAt(int hour) {
         return LocalDate.now().plusDays(1).atTime(hour, 0);
+    }
+
+    // 마감/지난 슬롯은 예약 자체가 안 되므로, 예약을 만든 뒤 시각만 SQL 로 옮긴다
+    // 예약 행의 reservation_date 도 슬롯 시각 복사본이라 같이 옮긴다
+    protected void moveSlotTo(String capacityId, LocalDateTime datetime) {
+        String slotId = jdbcTemplate.queryForObject(
+                "select slot_id from slot_capacities where slot_capacity_id = ?", String.class, capacityId);
+        jdbcTemplate.update("update reservation_slots set slot_datetime = ? where slot_id = ?", datetime, slotId);
+        jdbcTemplate.update("update reservations set reservation_date = ? where slot_id = ?", datetime, slotId);
     }
 
     protected static ReservationCreateRequest request(String capacityId) {

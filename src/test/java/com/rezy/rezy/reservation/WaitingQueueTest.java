@@ -15,7 +15,6 @@ import com.rezy.rezy.user.domain.User;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,7 +34,6 @@ class WaitingQueueTest extends IntegrationTestSupport {
     @Autowired WaitingService waitingService;
     @Autowired WaitingQueueScheduler scheduler;
     @Autowired StockReconciliationBatch reconciliationBatch;
-    @Autowired JdbcTemplate jdbcTemplate;
 
     @Test
     @DisplayName("만석이면 거절하지 않고 온 순서대로 번호표를 준다")
@@ -228,6 +226,59 @@ class WaitingQueueTest extends IntegrationTestSupport {
                 .extracting(WaitingEntry::getStatus)
                 .containsExactlyInAnyOrder(WaitingStatus.OFFERED, WaitingStatus.OFFERED, WaitingStatus.WAITING);
         assertThat(stock(capacityId)).isEqualTo("0");
+    }
+
+    @Test
+    @DisplayName("마감된 슬롯은 자리를 넘겨받았어도 확정할 수 없다")
+    void confirm_afterClosed_throws() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(2);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        String waitingId = reserve(users.get(1), capacityId).getWaiting().getWaitingId();
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);
+        moveSlotTo(capacityId, LocalDateTime.now().plusMinutes(30));
+
+        assertThatThrownBy(() -> waitingService.confirm(users.get(1).getUserId(), waitingId))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("예약이 마감된 시간대입니다.");
+
+        assertThat(reservationRepository.findAll())
+                .noneMatch(r -> r.getStatus() == ReservationStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("마감된 슬롯에서 취소가 나오면 대기자에게 넘기지 않고 공용 재고로 돌린다")
+    void cancel_afterClosed_doesNotOffer() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(2);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        String waitingId = reserve(users.get(1), capacityId).getWaiting().getWaitingId();
+        moveSlotTo(capacityId, LocalDateTime.now().plusMinutes(30));
+
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);
+
+        // 넘겨봤자 확정을 못 하니 5분 동안 자리만 묶인다
+        assertThat(waiting(waitingId).getStatus()).isEqualTo(WaitingStatus.WAITING);
+        assertThat(stock(capacityId)).isEqualTo("1");
+    }
+
+    @Test
+    @DisplayName("배치는 마감된 슬롯의 대기만 끝내고, 아직 열린 슬롯의 줄은 그대로 둔다")
+    void closeEndedLines_expiresOnlyClosedSlots() {
+        Store store = saveStore();
+        String closedId = saveSlot(store, tomorrowAt(19), 1);
+        String openId = saveSlot(store, tomorrowAt(20), 1);
+        List<User> users = saveUsers(4);
+        reserve(users.get(0), closedId);
+        String closedWaiting = reserve(users.get(1), closedId).getWaiting().getWaitingId();
+        reserve(users.get(2), openId);
+        String openWaiting = reserve(users.get(3), openId).getWaiting().getWaitingId();
+        moveSlotTo(closedId, LocalDateTime.now().plusMinutes(30));
+
+        scheduler.closeEndedLines();
+
+        assertThat(waiting(closedWaiting).getStatus()).isEqualTo(WaitingStatus.EXPIRED);
+        assertThat(waiting(openWaiting).getStatus()).isEqualTo(WaitingStatus.WAITING);
     }
 
     // ---------- 헬퍼 ----------
