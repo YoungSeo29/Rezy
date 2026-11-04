@@ -4,14 +4,22 @@ import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.repository.projection.CapacityHeldCountView;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 public interface ReservationRepository extends JpaRepository<Reservation, String> {
+
+    // 취소용 - 같은 예약에 동시 취소가 오면 뒤 요청은 앞 커밋 후 CANCELLED 를 보고 막힌다
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from Reservation r where r.reservationId = :id")
+    Optional<Reservation> findByIdForUpdate(@Param("id") String id);
 
     @Query("select count(r) > 0 from Reservation r " +
             "where r.user.userId = :userId " +

@@ -3,6 +3,7 @@ package com.rezy.rezy.reservation;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
+import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
 import com.rezy.rezy.reservation.service.ReservationService;
 import com.rezy.rezy.store.domain.Store;
@@ -12,7 +13,13 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-
+import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.*;
 
 class ReservationCancelTest extends IntegrationTestSupport {
@@ -64,5 +71,66 @@ class ReservationCancelTest extends IntegrationTestSupport {
 
         // 4 가 되면 정원(3)보다 많이 팔 수 있게 된다
         assertThat(redisTemplate.opsForValue().get(stockKey)).isEqualTo("3");
+    }
+
+    @Test
+    @DisplayName("같은 예약을 동시에 두 번 취소하면 한 번만 성공하고, 재고는 정확히 1 복구된다")
+    void concurrentCancel_restoresOnce() throws InterruptedException {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 3);
+        User user = saveUser("race@test.com");
+        String reservationId = reservationService.reserve(user.getUserId(), request(capacityId))
+                .getReservation().getReservationId();
+
+        Queue<Throwable> failures = cancelTogether(user.getUserId(), reservationId, 2);
+
+        assertThat(failures).hasSize(1);
+        assertThat(failures.peek())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("이미 취소된 예약입니다.");
+        assertThat(redisTemplate.opsForValue().get(RedisKeys.stock(capacityId))).isEqualTo("3");
+    }
+
+    @Test
+    @DisplayName("대기자가 있을 때 같은 예약을 동시에 두 번 취소해도 자리는 한 명에게만 넘어간다")
+    void concurrentCancel_offersOnce() throws InterruptedException {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(3);
+        String reservationId = reservationService.reserve(users.get(0).getUserId(), request(capacityId))
+                .getReservation().getReservationId();
+        reservationService.reserve(users.get(1).getUserId(), request(capacityId));
+        reservationService.reserve(users.get(2).getUserId(), request(capacityId));
+
+        Queue<Throwable> failures = cancelTogether(users.get(0).getUserId(), reservationId, 2);
+
+        assertThat(failures).hasSize(1);
+        // 2명이 OFFERED 가 되면 정원 1팀에 자리 주인이 둘이 된다
+        assertThat(waitingEntryRepository.countByCapacityAndStatus(capacityId, WaitingStatus.OFFERED)).isEqualTo(1);
+        assertThat(waitingEntryRepository.countByCapacityAndStatus(capacityId, WaitingStatus.WAITING)).isEqualTo(1);
+        assertThat(redisTemplate.opsForValue().get(RedisKeys.stock(capacityId))).isEqualTo("0");
+    }
+
+    private Queue<Throwable> cancelTogether(String userId, String reservationId, int times) throws InterruptedException {
+        ExecutorService pool = Executors.newFixedThreadPool(times);
+        CountDownLatch start = new CountDownLatch(1);
+        CountDownLatch done = new CountDownLatch(times);
+        Queue<Throwable> failures = new ConcurrentLinkedQueue<>();
+
+        for (int i = 0; i < times; i++) {
+            pool.submit(() -> {
+                try {
+                    start.await();
+                    reservationService.cancelReservation(userId, reservationId);
+                } catch (Throwable e) {
+                    failures.add(e);
+                } finally {
+                    done.countDown();
+                }
+            });
+        }
+
+        start.countDown();
+        assertThat(done.await(30, TimeUnit.SECONDS)).as("30초 안에 끝나야 함").isTrue();
+        pool.shutdownNow();
+        return failures;
     }
 }

@@ -149,7 +149,8 @@ public class ReservationService {
     @Transactional
     public void cancelReservation(String userId, String reservationId) {
 
-        Reservation reservation = reservationRepository.findById(reservationId)
+        // 잠그지 않으면 동시 취소 둘 다 CONFIRMED 를 보고 자리를 두 번 푼다
+        Reservation reservation = reservationRepository.findByIdForUpdate(reservationId)
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약입니다."));
 
         // [본인 확인] 본인 예약만 취소 가능
