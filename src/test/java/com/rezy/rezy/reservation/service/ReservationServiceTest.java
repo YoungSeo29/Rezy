@@ -6,6 +6,7 @@ import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
+import com.rezy.rezy.reservation.repository.WaitingEntryRepository;
 import com.rezy.rezy.user.UserRepository;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
@@ -29,12 +30,15 @@ import static org.mockito.Mockito.*;
 
 // 단위 테스트 - ReservationService 검증
 // @Mock으로 만든 가짜 저장소가 @InjectMocks로 서비스 생성자에 주입됨
+// 만석 → 대기 등록, 키 소실 후 재고 복구 같은 성공 경로는 WaitingQueueTest(통합)에서 본다
 @ExtendWith(MockitoExtension.class)
 public class ReservationServiceTest {
 
     @Mock UserRepository userRepository;
     @Mock SlotCapacityRepository slotCapacityRepository;
     @Mock ReservationRepository reservationRepository;
+    @Mock WaitingEntryRepository waitingEntryRepository;
+    @Mock WaitingService waitingService;
     @Mock StringRedisTemplate redisTemplate;
     @Mock ValueOperations<String, String> valueOperations;  // redisTemplate.opsForValue() 가 돌려줄 가짜
 
@@ -42,7 +46,8 @@ public class ReservationServiceTest {
 
     static final String USER_ID = "user-1";
     static final String CAPACITY_ID = "cap-1";
-    static final LocalDateTime SLOT_TIME = LocalDateTime.of(2026, 10, 1, 19, 0);
+    // 시작 1시간 전부터는 거절되므로 내일 슬롯
+    static final LocalDateTime SLOT_TIME = LocalDateTime.now().plusDays(1).withHour(19).withMinute(0).withSecond(0).withNano(0);
 
     @Test
     @DisplayName("같은 날 이미 예약이 있으면 예외 발생, Redis 재고 건드리지 않음")
@@ -52,8 +57,8 @@ public class ReservationServiceTest {
 
         given(reservationRepository.existsActiveOnDate(
                 USER_ID,
-                LocalDateTime.of(2026, 10, 1, 0, 0),
-                LocalDateTime.of(2026, 10, 2, 0, 0),
+                SLOT_TIME.toLocalDate().atStartOfDay(),
+                SLOT_TIME.toLocalDate().plusDays(1).atStartOfDay(),
                 ReservationStatus.CANCELLED))
                 .willReturn(true);
 
@@ -85,61 +90,42 @@ public class ReservationServiceTest {
     }
 
     @Test
-    @DisplayName("DECR 결과가 음수면 INCR 로 재고를 되돌리고 예외가 발생한다")
-    void negativeStock_rollbackAndThrow() {
+    @DisplayName("시작 1시간 이내 슬롯은 예약도 줄서기도 거절한다")
+    void imminentSlot_throws() {
+        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
+        given(slotCapacityRepository.findSlotDatetimeById(CAPACITY_ID))
+                .willReturn(Optional.of(LocalDateTime.now().plusMinutes(59)));
+
+        assertThatThrownBy(() -> reservationService.reserve(USER_ID, request(CAPACITY_ID)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("시작 1시간 전부터는 예약할 수 없습니다.");
+
+        // 재고도 줄도 건드리지 않는다
+        verifyNoInteractions(reservationRepository, waitingEntryRepository, redisTemplate);
+    }
+
+    @Test
+    @DisplayName("만석인 버킷 줄에 이미 서 있으면 깎은 재고를 되돌리고 예외 발생")
+    void alreadyInLine_rollbackAndThrow() {
         String stockKey = RedisKeys.stock(CAPACITY_ID);
 
         // given - 검증은 다 통과, Redis 재고는 이미 0 인 상황
         given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
         given(slotCapacityRepository.findSlotDatetimeById(CAPACITY_ID)).willReturn(Optional.of(SLOT_TIME));
         given(reservationRepository.existsActiveOnDate(any(), any(), any(), any())).willReturn(false);
-        given(redisTemplate.hasKey(stockKey)).willReturn(true);             // 재고 키는 이미 있음
+        given(redisTemplate.hasKey(stockKey)).willReturn(true);
         given(redisTemplate.opsForValue()).willReturn(valueOperations);
         given(valueOperations.decrement(stockKey)).willReturn(-1L);         // 0 에서 깎여 -1
+        given(waitingEntryRepository.existsInLine(any(), any(), any())).willReturn(true);
 
         // when & then
         assertThatThrownBy(() -> reservationService.reserve(USER_ID, request(CAPACITY_ID)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessage("잔여 좌석이 없습니다.");
+                .hasMessage("이미 대기 중인 예약 옵션입니다.");
 
         // 핵심 - 깎은 1 을 다시 올려놨는가. 안 하면 재고가 -1 로 남는다
         verify(valueOperations).increment(stockKey);
-        // 예약은 저장되면 안 된다
-        verify(reservationRepository, never()).save(any());
-    }
-
-    @Test
-    @DisplayName("Redis 키가 소실되면 총정원에서 CONFIRMED 수를 빼서 복구하므로 만석이 유지된다")
-    void reloadStock_fromConfirmedCount() {
-        String stockKey = RedisKeys.stock(CAPACITY_ID);
-
-        // given - 검증은 다 통과
-        given(userRepository.findById(USER_ID)).willReturn(Optional.of(normalUser()));
-        given(slotCapacityRepository.findSlotDatetimeById(CAPACITY_ID)).willReturn(Optional.of(SLOT_TIME));
-        given(reservationRepository.existsActiveOnDate(any(), any(), any(), any())).willReturn(false);
-
-        // Redis 재시작으로 키가 날아간 상황
-        given(redisTemplate.hasKey(stockKey)).willReturn(false);
-        given(redisTemplate.opsForValue()).willReturn(valueOperations);
-
-        // 정원 3팀, DB 에는 이미 CONFIRMED 3건 → 실제로는 만석
-        given(slotCapacityRepository.findTotalTeamsById(CAPACITY_ID)).willReturn(Optional.of(3));
-        given(reservationRepository.countByCapacityAndStatus(CAPACITY_ID, ReservationStatus.CONFIRMED))
-                .willReturn(3L);
-
-        // 0 으로 복구됐으므로 DECR 하면 -1
-        given(valueOperations.decrement(stockKey)).willReturn(-1L);
-
-        // when & then - 만석이므로 거부되어야 한다
-        assertThatThrownBy(() -> reservationService.reserve(USER_ID, request(CAPACITY_ID)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("잔여 좌석이 없습니다.");
-
-        // 핵심 - remaining_teams(3) 가 아니라 0 으로 복구해야 한다
-        // 3 으로 복구하면 만석인 슬롯에 3팀을 더 받아 오버부킹이 발생한다
-        verify(valueOperations).setIfAbsent(stockKey, "0");
-
-        verify(valueOperations).increment(stockKey);
+        verify(waitingEntryRepository, never()).save(any());
         verify(reservationRepository, never()).save(any());
     }
 

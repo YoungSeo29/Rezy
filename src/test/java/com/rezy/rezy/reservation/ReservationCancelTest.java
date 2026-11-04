@@ -12,7 +12,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.*;
 
@@ -25,11 +24,11 @@ class ReservationCancelTest extends IntegrationTestSupport {
     void cancel_restoresStock() {
         // given - 정원 3팀, 1건 예약해서 재고 2
         Store store = saveStore();
-        String capacityId = saveSlot(store, LocalDateTime.of(2026, 10, 1, 19, 0), 3);
+        String capacityId = saveSlot(store, tomorrowAt(19), 3);
         User user = saveUser("cancel@test.com");
         String stockKey = RedisKeys.stock(capacityId);
 
-        ReservationResponse reserved = reservationService.reserve(user.getUserId(), request(capacityId));
+        ReservationResponse reserved = reservationService.reserve(user.getUserId(), request(capacityId)).getReservation();
         assertThat(redisTemplate.opsForValue().get(stockKey)).isEqualTo("2");
 
         // when
@@ -51,11 +50,11 @@ class ReservationCancelTest extends IntegrationTestSupport {
     @DisplayName("이미 취소한 예약을 다시 취소하면 예외가 발생하고, 재고는 한 번만 복구된다")
     void cancelTwice_restoresOnce() {
         Store store = saveStore();
-        String capacityId = saveSlot(store, LocalDateTime.of(2026, 10, 1, 19, 0), 3);
+        String capacityId = saveSlot(store, tomorrowAt(19), 3);
         User user = saveUser("twice@test.com");
         String stockKey = RedisKeys.stock(capacityId);
 
-        ReservationResponse reserved = reservationService.reserve(user.getUserId(), request(capacityId));
+        ReservationResponse reserved = reservationService.reserve(user.getUserId(), request(capacityId)).getReservation();
         reservationService.cancelReservation(user.getUserId(), reserved.getReservationId());
 
         // when & then

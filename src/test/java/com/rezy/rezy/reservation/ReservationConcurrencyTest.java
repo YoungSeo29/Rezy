@@ -1,6 +1,7 @@
 package com.rezy.rezy.reservation;
 
 import com.rezy.rezy.global.redis.RedisKeys;
+import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.service.ReservationService;
 import com.rezy.rezy.store.domain.Store;
 import com.rezy.rezy.support.IntegrationTestSupport;
@@ -9,7 +10,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.*;
@@ -24,11 +24,11 @@ class ReservationConcurrencyTest extends IntegrationTestSupport {
     @Autowired ReservationService reservationService;
 
     @Test
-    @DisplayName("정원 3팀에 100명이 동시에 예약하면 정확히 3건만 성공하고 Redis 잔여는 0이다")
+    @DisplayName("정원 3팀에 100명이 동시에 예약하면 정확히 3건만 예약되고 97명은 줄을 서며 Redis 잔여는 0이다")
     void capacity3_100threads() throws InterruptedException {
         // given - 정원 3팀짜리 버킷 1개, 서로 다른 유저 100명
         Store store = saveStore();
-        String capacityId = saveSlot(store, LocalDateTime.of(2026, 10, 1, 19, 0), 3);
+        String capacityId = saveSlot(store, tomorrowAt(19), 3);
         List<User> users = saveUsers(100);
         // Redis 는 비어있는 상태로 시작
         // → 100개 요청이 "재고 키 최초 적재(SETNX)" 경쟁까지 동시에 겪게 된다
@@ -38,16 +38,13 @@ class ReservationConcurrencyTest extends IntegrationTestSupport {
                 .map(u -> (Runnable) () -> reservationService.reserve(u.getUserId(), request(capacityId)))
                 .toList());
 
-        // then
-        assertThat(result.success()).isEqualTo(3);
-
-        // 97건은 전부 "매진" 사유로만 실패해야 한다 (데드락 같은 다른 에러가 섞이면 안 됨)
-        assertThat(result.failures()).hasSize(97)
-                .allSatisfy(e -> assertThat(e)
-                        .isInstanceOf(IllegalStateException.class)
-                        .hasMessage("잔여 좌석이 없습니다."));
+        // then - 만석이면 거절 대신 줄을 서므로 예외는 하나도 없어야 한다 (데드락 같은 에러가 섞이면 안 됨)
+        assertThat(result.success()).isEqualTo(100);
+        assertThat(result.failures()).isEmpty();
 
         assertThat(reservationRepository.count()).isEqualTo(3);                                  // DB 에도 3건
+        assertThat(waitingEntryRepository.findAll()).hasSize(97)                                 // 나머지는 전부 대기
+                .allSatisfy(w -> assertThat(w.getStatus()).isEqualTo(WaitingStatus.WAITING));
         assertThat(redisTemplate.opsForValue().get(RedisKeys.stock(capacityId))).isEqualTo("0"); // 음수로 새지 않음
     }
 
@@ -56,8 +53,8 @@ class ReservationConcurrencyTest extends IntegrationTestSupport {
     void sameUser_sameDay_concurrent() throws InterruptedException {
         // given - 같은 날 점심·저녁 슬롯 (정원은 넉넉히 3팀 → 정원이 아니라 "하루 1건" 규칙만 검증)
         Store store = saveStore();
-        String lunch  = saveSlot(store, LocalDateTime.of(2026, 10, 1, 12, 0), 3);
-        String dinner = saveSlot(store, LocalDateTime.of(2026, 10, 1, 19, 0), 3);
+        String lunch  = saveSlot(store, tomorrowAt(12), 3);
+        String dinner = saveSlot(store, tomorrowAt(19), 3);
         User user = saveUser("same@test.com");
 
         // when - 같은 유저가 두 슬롯에 동시에 예약

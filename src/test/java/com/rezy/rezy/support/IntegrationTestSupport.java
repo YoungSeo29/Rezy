@@ -5,6 +5,7 @@ import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.ReservationSlotRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
+import com.rezy.rezy.reservation.repository.WaitingEntryRepository;
 import com.rezy.rezy.store.StoreRepository;
 import com.rezy.rezy.store.domain.Store;
 import com.rezy.rezy.user.UserRepository;
@@ -24,6 +25,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.containers.MariaDBContainer;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.IntStream;
@@ -54,11 +56,13 @@ public abstract class IntegrationTestSupport {
     @Autowired protected ReservationSlotRepository reservationSlotRepository;
     @Autowired protected SlotCapacityRepository slotCapacityRepository;
     @Autowired protected ReservationRepository reservationRepository;
+    @Autowired protected WaitingEntryRepository waitingEntryRepository;
     @Autowired protected StringRedisTemplate redisTemplate;
 
     // 테스트끼리 데이터가 섞이지 않도록 매번 전부 비운다 (FK 순서대로)
     @AfterEach
     void cleanUp() {
+        waitingEntryRepository.deleteAllInBatch();
         reservationRepository.deleteAllInBatch();
         slotCapacityRepository.deleteAllInBatch();
         reservationSlotRepository.deleteAllInBatch();
@@ -97,6 +101,11 @@ public abstract class IntegrationTestSupport {
         slot.addCapacity(2, teams);
         reservationSlotRepository.save(slot);   // 저장하면서 @PrePersist 가 ID 를 채움
         return slot.getCapacities().get(0).getSlotCapacityId();
+    }
+
+    // 예약은 시작 1시간 전까지만 받으므로, 예약하는 테스트는 내일 슬롯으로 잡는다
+    protected static LocalDateTime tomorrowAt(int hour) {
+        return LocalDate.now().plusDays(1).atTime(hour, 0);
     }
 
     protected static ReservationCreateRequest request(String capacityId) {
