@@ -2,9 +2,10 @@ package com.rezy.rezy.reservation.batch;
 
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
+import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
-import com.rezy.rezy.reservation.repository.projection.CapacityConfirmedCountView;
+import com.rezy.rezy.reservation.repository.projection.CapacityHeldCountView;
 import com.rezy.rezy.reservation.repository.projection.CapacityStockView;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,12 +62,13 @@ public class StockReconciliationBatch {
 
         List<String> capacityIds = targets.stream().map(CapacityStockView::getSlotCapacityId).toList();
 
-        // 2) 버킷별 CONFIRMED 예약 수 (쿼리 1회)
-        Map<String, Long> confirmedCounts = reservationRepository
-                .countConfirmedGroupByCapacity(capacityIds, ReservationStatus.CONFIRMED)
+        // 2) 버킷별 잡힌 자리 수 = CONFIRMED 예약 + OFFERED 대기 (쿼리 1회)
+        // OFFERED 를 안 빼면 확정 대기 5분 동안 그 자리를 공용 재고로 "보정" 해버린다
+        Map<String, Long> heldCounts = reservationRepository
+                .countHeldByCapacity(capacityIds, ReservationStatus.CONFIRMED, WaitingStatus.OFFERED)
                 .stream()
-                .collect(Collectors.toMap(CapacityConfirmedCountView::getCapacityId,
-                        CapacityConfirmedCountView::getConfirmedCount));
+                .collect(Collectors.toMap(CapacityHeldCountView::getCapacityId,
+                        CapacityHeldCountView::getHeldCount));
 
         // 3) Redis 값 (왕복 1회)
         List<String> keys = capacityIds.stream().map(RedisKeys::stock).toList();
@@ -89,9 +91,9 @@ public class StockReconciliationBatch {
 
             checked++;
 
-            // 기대 재고 = 총정원 - CONFIRMED 예약 수
+            // 기대 재고 = 총정원 - 잡힌 자리 수
             int expected = target.getTotalTeams()
-                    - confirmedCounts.getOrDefault(capacityId, 0L).intValue();
+                    - heldCounts.getOrDefault(capacityId, 0L).intValue();
 
             // 값이 맞으면 과거 관찰 기록을 지운다 (연속 카운트 초기화)
             if (redisValue.equals(String.valueOf(expected))) {

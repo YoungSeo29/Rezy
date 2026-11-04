@@ -53,6 +53,8 @@ app:
     redirect-uri: http://localhost:3000/oauth/callback
   stock-reconciliation:
     interval-ms: 60000    # 1분
+  waiting-queue:
+    interval-ms: 10000    # 10초 - 확정 기회 만료 처리
 springdoc:
   auto-response-codes: false
 server:

@@ -5,12 +5,17 @@ import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.Reservation;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
+import com.rezy.rezy.reservation.domain.WaitingEntry;
+import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.dto.MyReservationResponse;
 import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
 import com.rezy.rezy.reservation.dto.ReservationListType;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
+import com.rezy.rezy.reservation.dto.ReserveResponse;
+import com.rezy.rezy.reservation.dto.WaitingResponse;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
+import com.rezy.rezy.reservation.repository.WaitingEntryRepository;
 import com.rezy.rezy.user.UserRepository;
 import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
@@ -22,6 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -35,6 +41,11 @@ public class ReservationService {
     private final UserRepository userRepository;
     private final SlotCapacityRepository slotCapacityRepository;
     private final ReservationRepository reservationRepository;
+    private final WaitingEntryRepository waitingEntryRepository;
+    private final WaitingService waitingService;
+
+    // 1시간 전부터는 예약 불가능
+    private static final Duration RESERVE_CUTOFF = Duration.ofHours(1);
 
     // Redis 접근용 - 문자열 전용이라서 DECR/INCR 사용 가능
     private final StringRedisTemplate redisTemplate;
@@ -42,7 +53,7 @@ public class ReservationService {
     // 예약 생성 - User 검증 -> 하루 1건인지 검증-> Redis 재고 차감 -> 예약 저장
     // 기존과 달리 slot_capacities 행에 lock 안걺. 초과 예약은 Redis가 막아줌
     @Transactional
-    public ReservationResponse reserve(String userId, ReservationCreateRequest request) {
+    public ReserveResponse reserve(String userId, ReservationCreateRequest request) {
 
         String capacityId = request.getSlotCapacityId();
 
@@ -59,32 +70,18 @@ public class ReservationService {
                 .findSlotDatetimeById(capacityId)
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
+        // 2-2) 임박 슬롯(1시간 전)은 예약도 줄서기도 안 받음
+        if (slotDatetime.isBefore(LocalDateTime.now().plus(RESERVE_CUTOFF))) {
+            throw new IllegalStateException("시작 1시간 전부터는 예약할 수 없습니다.");
+        }
+
         LocalDate date = slotDatetime.toLocalDate();
 
-        // 2-2) 하루 1건 제한 확인
+        // 2-3) 하루 1건 제한 확인
         boolean alreadyBooked = reservationRepository.existsActiveOnDate( userId, date.atStartOfDay(), date.plusDays(1).atStartOfDay(), ReservationStatus.CANCELLED);
         if(alreadyBooked) {
             throw new IllegalStateException("같은 날짜에는 하루에 한 건만 예약할 수 있습니다.");
         }
-
-        /* @@ 비관적 lock 코드
-        // 3) 예약할 버킷 확인
-        // 락 획득 - 이 시점부터 Trx 종료까지. 같은 버킷 노리는 다른 요청은 대기
-        SlotCapacity capacity = slotCapacityRepository.findByIdForUpdate(request.getSlotCapacityId())
-                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
-
-        ReservationSlot slot = capacity.getSlot();
-
-        // 4) 잔여 차감 (remaining_teams 확인은 이 함수 내부에서)
-        capacity.decreaseRemaining();
-
-        // 5) 예약 저장
-        Reservation reservation = Reservation.create(user, slot.getStore(), slot, capacity.getPartySize());
-
-        reservationRepository.save(reservation);
-
-        return ReservationResponse.from(reservation);
-         */
 
         // 3) Redis 에 저장 할 key 완성
         String stockKey = RedisKeys.stock(capacityId);
@@ -97,40 +94,13 @@ public class ReservationService {
         // 반환 값은, "-1 된 후의 잔여 수량"
         Long remaining = redisTemplate.opsForValue().decrement(stockKey);
 
-        // remainingTeams가 음수면 원상복귀 시키고 거절.
+        // remainingTeams가 음수면 원상복귀 시키고 줄을 세운다.
         // DECR은 음수까지 내려가기 때문에 check 필요..
+        // 자리를 얻는 길은 DECR 성공뿐이라, 만석일 때 새로 온 사람은 줄 선 사람을 가로챌 수 없다
         if(remaining == null || remaining < 0) {
             redisTemplate.opsForValue().increment(stockKey);
-            throw new IllegalStateException("잔여 좌석이 없습니다.");
+            return ReserveResponse.waiting(enqueue(user, capacityId));
         }
-
-        /*
-        // 4) 예약 저장
-        // remainingTeams는 갱신X
-        // update하는 순간 그 행에 X-lock 걸려서 Redis로 없앤 직렬화가 살아나기 때문.
-        try{
-            // 예약 저장에 필요한 capacity 엔티티 조회 (slot, store 정보용)
-            SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
-                    .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
-
-            ReservationSlot slot = capacity.getSlot();
-
-            // 예약 entity 생성 (상태 = confirmed)
-            Reservation reservation = Reservation.create(user, capacity);
-
-            // DB에 새 행 insert (slot_capacities 안건들임 -> 락 경합X)
-            reservationRepository.save(reservation);
-
-            return ReservationResponse.from(reservation);
-
-        } catch (RuntimeException e) {
-
-            // 저장은 실패했는데 Redis 재고만 -1 되면 안되기때문에
-            // -1 한거 원상복귀.
-            redisTemplate.opsForValue().increment(stockKey);
-            throw e;
-        }
-         */
 
         // "트랜잭션 끝나면 롤백 여부 확인해서, 롤백이면 INCR 해라" 라고 예약 걸어둠
         // 기존 try/catch 는 커밋 시점의 실패를 놓쳤다
@@ -151,11 +121,31 @@ public class ReservationService {
         Reservation reservation = Reservation.create(user, capacity);
         reservationRepository.save(reservation);
 
-        return ReservationResponse.from(reservation);
+        return ReserveResponse.reserved(ReservationResponse.from(reservation));
+    }
+
+    // 만석 - 번호표 발급
+    private WaitingResponse enqueue(User user, String capacityId) {
+
+        if (waitingEntryRepository.existsInLine(user.getUserId(), capacityId,
+                List.of(WaitingStatus.WAITING, WaitingStatus.OFFERED))) {
+            throw new IllegalStateException("이미 대기 중인 예약 옵션입니다.");
+        }
+
+        SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
+                .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
+
+        // 동시에 줄 서면 번호가 겹칠 수 있다. 실제 순서는 created_at 이 정한다
+        long ahead = waitingEntryRepository.countByCapacityAndStatus(capacityId, WaitingStatus.WAITING);
+
+        WaitingEntry entry = WaitingEntry.create(user, capacity);
+        waitingEntryRepository.save(entry);
+
+        return WaitingResponse.of(entry, ahead + 1);
     }
 
     // 예약 취소
-    // 본인 확인 -> 상태변경 -> 커밋 성공후 Redis 재고 복구
+    // 본인 확인 -> 상태변경 -> 비워진 자리를 대기 1번에게, 없으면 커밋 성공후 Redis 재고 복구
     @Transactional
     public void cancelReservation(String userId, String reservationId) {
 
@@ -170,26 +160,14 @@ public class ReservationService {
         // 상태 CANCELLED로 변경
         reservation.cancel();
 
-        // Redis 키 만들기 - 재고 복원해야하니까
-        String stockKey = RedisKeys.stock(reservation.getCapacity().getSlotCapacityId());
-
-        // 재고 복구는 DB 커밋이 "성공한 뒤"에만 한다
-        // 커밋 전에 INCR 하면 → 커밋이 실패했을 때 예약은 살아있는데 재고만 늘어서 초과 예약이 생긴다
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                // 키가 없다 = Redis 가 아직 이 버킷 재고를 관리하지 않는 상태 → 건드리지 않는다
-                // (없는 키에 INCR 하면 "1" 이 새로 생겨서 재고가 틀어짐)
-                if (Boolean.TRUE.equals(redisTemplate.hasKey(stockKey))) {
-                    redisTemplate.opsForValue().increment(stockKey);
-                }
-            }
-        });
+        // 대기 줄이 있으면 1번에게 직접 넘기고 INCR 안 함, 줄이 비었으면 커밋 후 INCR
+        waitingService.releaseSeat(reservation.getCapacity().getSlotCapacityId());
     }
 
-    // Redis에 재고 키가 없으면 DB의 remainingTeams를 최초 1회 갖고옴.
-    // remaining_teams는 예약 시 갱신X
-    // 총정원 - CONFIRMED 예약수 로 계산.
+    // Redis에 재고 키가 없을 때 최초 1회 DB에서 계산해 올림.
+    // remaining_teams는 예약 시 갱신X → 읽지 않는다
+    // 총정원 - CONFIRMED 예약수 - OFFERED 대기수 로 계산.
+    // OFFERED 를 안 빼면 키 소실 후 대기 1번에게 넘긴 자리가 공용 재고로 풀려 오버부킹이 난다
     private void loadStockIfAbsent(String stockKey, String capacityId) {
 
         // 이미 재고 key  있으면 return
@@ -202,12 +180,13 @@ public class ReservationService {
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         long confirmed = reservationRepository.countByCapacityAndStatus(capacityId, ReservationStatus.CONFIRMED);
+        long offered = waitingEntryRepository.countByCapacityAndStatus(capacityId, WaitingStatus.OFFERED);
 
-        int remaining = totalTeams - (int) confirmed;
+        int remaining = totalTeams - (int) (confirmed + offered);
 
         if(remaining < 0) {
-            log.error("[재고] 예약 수가 총정원을 초과함. capacityId={}, total={}, confirmed={}",
-                    capacityId, totalTeams, confirmed);
+            log.error("[재고] 잡힌 자리가 총정원을 초과함. capacityId={}, total={}, confirmed={}, offered={}",
+                    capacityId, totalTeams, confirmed, offered);
             remaining = 0;
         }
 

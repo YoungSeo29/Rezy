@@ -4,11 +4,12 @@ import com.rezy.rezy.global.exception.NotFoundException;
 import com.rezy.rezy.global.redis.RedisKeys;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
+import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.dto.*;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.ReservationSlotRepository;
 import com.rezy.rezy.reservation.domain.ReservationSlot;
-import com.rezy.rezy.reservation.repository.projection.CapacityConfirmedCountView;
+import com.rezy.rezy.reservation.repository.projection.CapacityHeldCountView;
 import com.rezy.rezy.store.StoreRepository;
 import com.rezy.rezy.store.domain.Store;
 import lombok.RequiredArgsConstructor;
@@ -157,7 +158,7 @@ public class ReservationSlotService {
     }
 
     // 모든 슬롯에 딸린 모든 버킷의 잔여 수량을 Redis에서 한 방에 읽어옴
-    // Redis에 키가 없는 버킷은 DB에서 "총정원 - CONFIRMED 예약 수"로 계산해 채운다
+    // Redis에 키가 없는 버킷은 DB에서 "총정원 - (CONFIRMED 예약 수 + OFFERED 대기 수)"로 계산해 채운다
     private Map<String, Integer> loadStocks(List<ReservationSlot> slots) {
 
         // CapacityId 싹 모으기
@@ -212,17 +213,17 @@ public class ReservationSlotService {
                 .collect(Collectors.toMap(SlotCapacity::getSlotCapacityId,
                         SlotCapacity::getTotalTeams));
 
-        // 키 없는 버킷만 CONFIRMED 수를 센다 (쿼리 1회)
-        // remaining_teams 는 예약 시 갱신하지 않으므로 쓰면 안 된다
-        Map<String, Long> confirmedCounts = reservationRepository
-                .countConfirmedGroupByCapacity(missing, ReservationStatus.CONFIRMED)
+        // heldCount: 이미 주인이 정해진 자리가 몇석인지.
+        // ex. 정원 5팀인 좌석의 경우 1명이 취소: CONFIRMED 4 + OFFERED 1 = 5  → 남은 자리 0
+        Map<String, Long> heldCounts = reservationRepository
+                .countHeldByCapacity(missing, ReservationStatus.CONFIRMED, WaitingStatus.OFFERED)
                 .stream()
-                .collect(Collectors.toMap(CapacityConfirmedCountView::getCapacityId,
-                        CapacityConfirmedCountView::getConfirmedCount));
+                .collect(Collectors.toMap(CapacityHeldCountView::getCapacityId,
+                        CapacityHeldCountView::getHeldCount));
 
         for (String capacityId : missing) {
             int total = totalTeamsMap.get(capacityId);
-            int remaining = total - confirmedCounts.getOrDefault(capacityId, 0L).intValue();
+            int remaining = total - heldCounts.getOrDefault(capacityId, 0L).intValue();
             stockMap.put(capacityId, Math.max(remaining, 0));
         }
 
