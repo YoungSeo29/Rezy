@@ -1,6 +1,7 @@
 package com.rezy.rezy.reservation.controller;
 
 import com.rezy.rezy.reservation.dto.MyReservationResponse;
+import com.rezy.rezy.reservation.dto.MyWaitingResponse;
 import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
 import com.rezy.rezy.reservation.dto.ReservationListType;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
@@ -46,6 +47,12 @@ public class ReservationController {
         ReservationResponse response = waitingService.confirm(authentication.getName(), waitingId);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // 내 대기 목록 - 지금 몇 번째인지 / 내 차례인지
+    @GetMapping("/waitings/me")
+    public ResponseEntity<List<MyWaitingResponse>> getMyWaitings(Authentication authentication) {
+        return ResponseEntity.ok(waitingService.getMyWaitings(authentication.getName()));
     }
 
     // 예약 취소

@@ -71,4 +71,23 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
             "where w.status = com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED " +
             "and w.offerExpiresAt <= :now")
     List<String> findExpiredOfferIds(@Param("now") LocalDateTime now);
+
+    // 내가 대기하는 중인 가게들 목록 - 가게/시간/인원까지 한 번에
+    // 여러 가게 예약하고잇을수도 잇으니까..
+    @Query("select w from WaitingEntry w " +
+            "join fetch w.capacity c join fetch c.slot s join fetch s.store " +
+            "where w.user.userId = :userId and w.status in :statuses " +
+            "order by w.createdAt asc, w.waitingId asc")
+    List<WaitingEntry> findActiveByUser(@Param("userId") String userId,
+                                        @Param("statuses") List<WaitingStatus> statuses);
+
+    // 내 앞에 몇 명인지 - 자리를 넘겨받은(OFFERED) 사람 전부 + 나보다 먼저 줄 선 WAITING
+    @Query("select count(w) from WaitingEntry w " +
+            "where w.capacity.slotCapacityId = :capacityId and (" +
+            "w.status = com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED " +
+            "or (w.status = com.rezy.rezy.reservation.domain.WaitingStatus.WAITING " +
+            "and (w.createdAt < :createdAt or (w.createdAt = :createdAt and w.waitingId < :waitingId))))")
+    long countAhead(@Param("capacityId") String capacityId,
+                    @Param("createdAt") LocalDateTime createdAt,
+                    @Param("waitingId") String waitingId);
 }

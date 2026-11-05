@@ -8,6 +8,7 @@ import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.SlotCapacity;
 import com.rezy.rezy.reservation.domain.WaitingEntry;
 import com.rezy.rezy.reservation.domain.WaitingStatus;
+import com.rezy.rezy.reservation.dto.MyWaitingResponse;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
@@ -23,6 +24,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 // 취소 대기 줄 - 비워진 자리 넘기기 / 만료 / 확정
@@ -37,6 +39,25 @@ public class WaitingService {
     private final SlotCapacityRepository slotCapacityRepository;
     private final ReservationRepository reservationRepository;
     private final StringRedisTemplate redisTemplate;
+
+    // 내 대기 목록 - WAITING 은 지금 몇 번째인지, OFFERED 는 내 차례(번호 0)
+    // 번호는 줄 선 시점 고정값이 아니라 조회 시점에 다시 센다 (앞사람이 빠지면 당겨진다)
+    @Transactional(readOnly = true)
+    public List<MyWaitingResponse> getMyWaitings(String userId) {
+        return waitingEntryRepository
+                .findActiveByUser(userId, List.of(WaitingStatus.WAITING, WaitingStatus.OFFERED))
+                .stream()
+                .map(entry -> entry.getStatus() == WaitingStatus.OFFERED
+                        ? MyWaitingResponse.offered(entry)
+                        : MyWaitingResponse.waiting(entry, aheadOf(entry) + 1))
+                .toList();
+    }
+
+    // 내 앞에 몇명있는지 세주는 함수
+    private long aheadOf(WaitingEntry entry) {
+        return waitingEntryRepository.countAhead(
+                entry.getCapacity().getSlotCapacityId(), entry.getCreatedAt(), entry.getWaitingId());
+    }
 
     // 취소로 비워진 자리 1개를 넘긴다 - 취소 트랜잭션 안에서 불린다
     @Transactional(propagation = Propagation.MANDATORY)
