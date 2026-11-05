@@ -358,6 +358,28 @@ class WaitingQueueTest extends IntegrationTestSupport {
                 .isEqualTo(2);
     }
 
+    @Test
+    @DisplayName("같은 유저가 같은 줄에 동시에 두 번 서도 번호표는 한 장만 생긴다")
+    void concurrentEnqueue_sameUser_onlyOneTicket() throws InterruptedException {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(2);
+        reserve(users.get(0), capacityId);          // 만석
+        User me = users.get(1);
+
+        Queue<Throwable> failures = runTogether(
+                () -> reserve(me, capacityId),
+                () -> reserve(me, capacityId));
+
+        // 하나만 성공, 하나는 거절 (existsInLine 또는 DB 유니크가 막음)
+        assertThat(failures).hasSize(1);
+        assertThat(failures.peek())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("이미 대기 중인 예약 옵션입니다.");
+        // 번호표는 딱 한 장
+        assertThat(waitingEntryRepository.findActiveByUser(me.getUserId(),
+                List.of(WaitingStatus.WAITING, WaitingStatus.OFFERED))).hasSize(1);
+    }
+
     // ---------- 헬퍼 ----------
 
     private ReserveResponse reserve(User user, String capacityId) {
