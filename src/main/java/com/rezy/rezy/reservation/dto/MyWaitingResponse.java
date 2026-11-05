@@ -29,12 +29,12 @@ public class MyWaitingResponse {
         this.offerExpiresAt = offerExpiresAt;
     }
 
-    // 줄 서는 중 - 내 앞에 (waitingNumber - 1) 명
+    // 조회 시 아직 줄 서는 중(WAITING)이면 이걸로 변환 - 지금 내 번호
     public static MyWaitingResponse waiting(WaitingEntry entry, long waitingNumber) {
         return of(entry, waitingNumber, null);
     }
 
-    // 조회 시 아직 줄 서는 중(WAITING)이면 이걸로 변환 - 지금 내 번호
+    // 조회 시 내 차례(OFFERED)면 이걸로 변환 - 번호 0, 확정 마감 시각 포함
     public static MyWaitingResponse offered(WaitingEntry entry) {
         return of(entry, 0, entry.getOfferExpiresAt());
     }

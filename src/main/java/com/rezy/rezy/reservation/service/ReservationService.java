@@ -132,11 +132,13 @@ public class ReservationService {
         SlotCapacity capacity = slotCapacityRepository.findById(capacityId)
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
-        // 동시에 줄 서면 번호가 겹칠 수 있다. 실제 순서는 created_at 이 정한다
-        long ahead = waitingEntryRepository.countByCapacityAndStatus(capacityId, WaitingStatus.WAITING);
-
         WaitingEntry entry = WaitingEntry.create(user, capacity);
-        waitingEntryRepository.save(entry);
+        waitingEntryRepository.save(entry);   // createdAt·waitingId 확정
+
+        // 줄 설 때와 조회할 때 번호 기준이 어긋나지 않도록 getMyWaitings 와 같은 집계를 쓴다
+        // (OFFERED 도 내 앞으로 셈, 자기 자신은 waitingId 비교로 빠진다)
+        long ahead = waitingEntryRepository.countAhead(
+                capacityId, entry.getCreatedAt(), entry.getWaitingId());
 
         return WaitingResponse.of(entry, ahead + 1);
     }
