@@ -6,6 +6,7 @@ import com.rezy.rezy.reservation.batch.WaitingQueueScheduler;
 import com.rezy.rezy.reservation.domain.ReservationStatus;
 import com.rezy.rezy.reservation.domain.WaitingEntry;
 import com.rezy.rezy.reservation.domain.WaitingStatus;
+import com.rezy.rezy.reservation.dto.MyWaitingResponse;
 import com.rezy.rezy.reservation.dto.ReserveResponse;
 import com.rezy.rezy.reservation.service.ReservationService;
 import com.rezy.rezy.reservation.service.WaitingService;
@@ -279,6 +280,64 @@ class WaitingQueueTest extends IntegrationTestSupport {
 
         assertThat(waiting(closedWaiting).getStatus()).isEqualTo(WaitingStatus.EXPIRED);
         assertThat(waiting(openWaiting).getStatus()).isEqualTo(WaitingStatus.WAITING);
+    }
+
+    @Test
+    @DisplayName("내 대기 순번을 조회한다 - 줄 선 순서대로 번호가 매겨진다")
+    void myWaitings_showsPosition() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(3);
+        reserve(users.get(0), capacityId);          // RESERVED
+        reserve(users.get(1), capacityId);          // 1번
+        reserve(users.get(2), capacityId);          // 2번
+
+        List<MyWaitingResponse> first = waitingService.getMyWaitings(users.get(1).getUserId());
+        assertThat(first).hasSize(1);
+        assertThat(first.get(0).getStatus()).isEqualTo("WAITING");
+        assertThat(first.get(0).getWaitingNumber()).isEqualTo(1);
+
+        assertThat(waitingService.getMyWaitings(users.get(2).getUserId()).get(0).getWaitingNumber())
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("앞사람이 빠지면 순번이 당겨진다")
+    void myWaitings_movesUpWhenAheadLeaves() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(4);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        String firstWaiting = reserve(users.get(1), capacityId).getWaiting().getWaitingId();
+        reserve(users.get(2), capacityId);
+        reserve(users.get(3), capacityId);
+
+        assertThat(waitingService.getMyWaitings(users.get(3).getUserId()).get(0).getWaitingNumber())
+                .isEqualTo(3);
+
+        // 1번이 자리를 받았다가 기한을 넘겨 탈락 → 2번이 당겨짐
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);
+        expireNow(firstWaiting);
+        scheduler.expireOffers();
+
+        // 3번 앞에는 이제 OFFERED 가 된 2번 하나뿐
+        assertThat(waitingService.getMyWaitings(users.get(3).getUserId()).get(0).getWaitingNumber())
+                .isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("내 차례(OFFERED)면 번호는 0, 확정 기한을 함께 준다")
+    void myWaitings_offeredShowsDeadline() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(2);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        reserve(users.get(1), capacityId);
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);
+
+        MyWaitingResponse mine = waitingService.getMyWaitings(users.get(1).getUserId()).get(0);
+
+        assertThat(mine.getStatus()).isEqualTo("OFFERED");
+        assertThat(mine.getWaitingNumber()).isZero();
+        assertThat(mine.getOfferExpiresAt())
+                .isBetween(LocalDateTime.now().plusMinutes(4), LocalDateTime.now().plusMinutes(5));
     }
 
     // ---------- 헬퍼 ----------
