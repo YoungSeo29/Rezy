@@ -14,6 +14,9 @@ import java.util.UUID;
 // Reservation 에 안 얹은 이유 : (user_id, active_date) 유니크 때문에 "같은 날 대기 중" 을 예약 행으로 표현할 수 없다
 @Entity
 @Table(name = "waiting_entry",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_user_active_capacity",
+                columnNames = {"user_id", "active_capacity_id"}),
         indexes = @Index(name = "idx_waiting_capacity_status_created",
                 columnList = "slot_capacity_id, status, created_at"))
 @Getter
@@ -48,6 +51,12 @@ public class WaitingEntry {
     @Column(name = "offer_expires_at")
     private LocalDateTime offerExpiresAt;
 
+    // 줄 서는 동안(WAITING·OFFERED)엔 버킷 id, 끝나면(CONFIRMED·EXPIRED) NULL
+    // (user_id, active_capacity_id) 유니크로 "같은 줄 중복 입장" 을 DB 가 막는다
+    // 예약의 (user_id, active_date) 와 같은 원리 - MariaDB 는 NULL 중복을 허용하므로 끝난 뒤 재입장도 된다
+    @Column(name = "active_capacity_id")
+    private String activeCapacityId;
+
     @PrePersist
     public void prePersist() {
         if (waitingId == null) {
@@ -61,6 +70,7 @@ public class WaitingEntry {
         entry.capacity = capacity;
         entry.status = WaitingStatus.WAITING;
         entry.createdAt = LocalDateTime.now();
+        entry.activeCapacityId = capacity.getSlotCapacityId();
         return entry;
     }
 

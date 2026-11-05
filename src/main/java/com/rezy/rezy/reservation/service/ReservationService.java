@@ -22,6 +22,7 @@ import com.rezy.rezy.user.domain.User;
 import com.rezy.rezy.user.domain.UserRole;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -133,7 +134,13 @@ public class ReservationService {
                 .orElseThrow(() -> new NotFoundException("존재하지 않는 예약 옵션입니다."));
 
         WaitingEntry entry = WaitingEntry.create(user, capacity);
-        waitingEntryRepository.save(entry);   // createdAt·waitingId 확정
+        try {
+            // existsInLine 을 동시 요청이 둘 다 통과하면, (user_id, active_capacity_id) 유니크가 최후로 막는다
+            // saveAndFlush 로 위반을 지금 드러내서 올바른 메시지로 바꾼다 (커밋까지 미루면 변환 못 함)
+            waitingEntryRepository.saveAndFlush(entry);   // createdAt·waitingId 확정
+        } catch (DataIntegrityViolationException e) {
+            throw new IllegalStateException("이미 대기 중인 예약 옵션입니다.");
+        }
 
         // 줄 설 때와 조회할 때 번호 기준이 어긋나지 않도록 getMyWaitings 와 같은 집계를 쓴다
         // (OFFERED 도 내 앞으로 셈, 자기 자신은 waitingId 비교로 빠진다)

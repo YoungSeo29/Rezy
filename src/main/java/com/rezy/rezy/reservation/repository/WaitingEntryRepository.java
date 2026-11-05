@@ -45,7 +45,8 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
 
     // 확정 - 아직 OFFERED 이고 시간 안일 때만. 0건이면 이미 만료됐거나 다음으로 넘어간 것
     @Modifying
-    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.CONFIRMED " +
+    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.CONFIRMED, " +
+            "w.activeCapacityId = null " +
             "where w.waitingId = :id " +
             "and w.status = com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED " +
             "and w.offerExpiresAt > :now")
@@ -53,7 +54,8 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
 
     // 만료 - 확정과 조건이 겹치지 않으므로 둘 중 하나만 1건이 된다
     @Modifying
-    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.EXPIRED " +
+    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.EXPIRED, " +
+            "w.activeCapacityId = null " +
             "where w.waitingId = :id " +
             "and w.status = com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED " +
             "and w.offerExpiresAt <= :now")
@@ -61,7 +63,8 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
 
     // 마감 시각이 지난 슬롯의 WAITING 을 일괄 만료
     @Modifying
-    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.EXPIRED " +
+    @Query("update WaitingEntry w set w.status = com.rezy.rezy.reservation.domain.WaitingStatus.EXPIRED, " +
+            "w.activeCapacityId = null " +
             "where w.status = com.rezy.rezy.reservation.domain.WaitingStatus.WAITING " +
             "and w.capacity.slotCapacityId in (select sc.slotCapacityId from SlotCapacity sc " +
             "where sc.slot.slotDatetime < :closedBefore)")
