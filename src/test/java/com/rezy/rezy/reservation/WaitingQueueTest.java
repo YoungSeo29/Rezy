@@ -340,6 +340,24 @@ class WaitingQueueTest extends IntegrationTestSupport {
                 .isBetween(LocalDateTime.now().plusMinutes(4), LocalDateTime.now().plusMinutes(5));
     }
 
+    @Test
+    @DisplayName("자리를 받은(OFFERED) 사람이 앞에 있으면, 줄 설 때 번호와 조회 번호가 같다")
+    void enqueueNumber_matchesQuery_withOfferedAhead() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(3);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        reserve(users.get(1), capacityId);                                               // 1번
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);   // users[1] → OFFERED
+
+        // OFFERED 가 앞에 1명 있으므로 새로 선 users[2] 는 2번
+        ReserveResponse enqueued = reserve(users.get(2), capacityId);
+        assertThat(enqueued.getWaiting().getWaitingNumber()).isEqualTo(2);
+
+        // 줄 설 때와 조회가 같은 기준이어야 한다 (1↔2 로 튀면 안 됨)
+        assertThat(waitingService.getMyWaitings(users.get(2).getUserId()).get(0).getWaitingNumber())
+                .isEqualTo(2);
+    }
+
     // ---------- 헬퍼 ----------
 
     private ReserveResponse reserve(User user, String capacityId) {
