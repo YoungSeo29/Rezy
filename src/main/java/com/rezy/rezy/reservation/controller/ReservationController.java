@@ -6,6 +6,7 @@ import com.rezy.rezy.reservation.dto.ReservationCreateRequest;
 import com.rezy.rezy.reservation.dto.ReservationListType;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
 import com.rezy.rezy.reservation.dto.ReserveResponse;
+import com.rezy.rezy.reservation.dto.WaitingPreviewResponse;
 import com.rezy.rezy.reservation.service.ReservationService;
 import com.rezy.rezy.reservation.service.WaitingService;
 import jakarta.validation.Valid;
@@ -47,6 +48,12 @@ public class ReservationController {
         ReservationResponse response = waitingService.confirm(authentication.getName(), waitingId);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
+    }
+
+    // 만석의 경우, 몇번째로 줄 서게 되는지 알려주는 용도
+    @GetMapping("/slots/{capacityId}/waiting")
+    public ResponseEntity<WaitingPreviewResponse> getWaitingPreview(@PathVariable String capacityId) {
+        return ResponseEntity.ok(waitingService.getWaitingPreview(capacityId));
     }
 
     // 내 대기 목록 - 지금 몇 번째인지 / 내 차례인지

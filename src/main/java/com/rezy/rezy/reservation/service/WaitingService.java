@@ -10,6 +10,7 @@ import com.rezy.rezy.reservation.domain.WaitingEntry;
 import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.dto.MyWaitingResponse;
 import com.rezy.rezy.reservation.dto.ReservationResponse;
+import com.rezy.rezy.reservation.dto.WaitingPreviewResponse;
 import com.rezy.rezy.reservation.repository.ReservationRepository;
 import com.rezy.rezy.reservation.repository.SlotCapacityRepository;
 import com.rezy.rezy.reservation.repository.WaitingEntryRepository;
@@ -57,6 +58,15 @@ public class WaitingService {
     private long aheadOf(WaitingEntry entry) {
         return waitingEntryRepository.countAhead(
                 entry.getCapacity().getSlotCapacityId(), entry.getCreatedAt(), entry.getWaitingId());
+    }
+
+    // 만석의 경우 몇번째인지 보여주기 위한 함수
+    @Transactional(readOnly = true)
+    public WaitingPreviewResponse getWaitingPreview(String capacityId) {
+        if (!slotCapacityRepository.existsById(capacityId)) {
+            throw new NotFoundException("존재하지 않는 예약 옵션입니다.");
+        }
+        return WaitingPreviewResponse.of(capacityId, waitingEntryRepository.countActive(capacityId));
     }
 
     // 취소로 비워진 자리 1개를 넘긴다 - 취소 트랜잭션 안에서 불린다

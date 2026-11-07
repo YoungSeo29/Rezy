@@ -84,6 +84,14 @@ public interface WaitingEntryRepository extends JpaRepository<WaitingEntry, Stri
     List<WaitingEntry> findActiveByUser(@Param("userId") String userId,
                                         @Param("statuses") List<WaitingStatus> statuses);
 
+    // 줄 서기 전 미리보기용 - 지금 이 줄에 활성으로 서 있는 인원(WAITING + OFFERED)
+    // 여기에 +1 이 "서면 받을 번호". 새로 서는 사람은 맨 뒤라 countAhead 와 같은 값이 된다
+    @Query("select count(w) from WaitingEntry w " +
+            "where w.capacity.slotCapacityId = :capacityId " +
+            "and w.status in (com.rezy.rezy.reservation.domain.WaitingStatus.WAITING, " +
+            "com.rezy.rezy.reservation.domain.WaitingStatus.OFFERED)")
+    long countActive(@Param("capacityId") String capacityId);
+
     // 내 앞에 몇 명인지 - 자리를 넘겨받은(OFFERED) 사람 전부 + 나보다 먼저 줄 선 WAITING
     @Query("select count(w) from WaitingEntry w " +
             "where w.capacity.slotCapacityId = :capacityId and (" +
