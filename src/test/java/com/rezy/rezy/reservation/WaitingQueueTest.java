@@ -8,6 +8,7 @@ import com.rezy.rezy.reservation.domain.WaitingEntry;
 import com.rezy.rezy.reservation.domain.WaitingStatus;
 import com.rezy.rezy.reservation.dto.MyWaitingResponse;
 import com.rezy.rezy.reservation.dto.ReserveResponse;
+import com.rezy.rezy.reservation.dto.WaitingPreviewResponse;
 import com.rezy.rezy.reservation.service.ReservationService;
 import com.rezy.rezy.reservation.service.WaitingService;
 import com.rezy.rezy.store.domain.Store;
@@ -378,6 +379,26 @@ class WaitingQueueTest extends IntegrationTestSupport {
         // 번호표는 딱 한 장
         assertThat(waitingEntryRepository.findActiveByUser(me.getUserId(),
                 List.of(WaitingStatus.WAITING, WaitingStatus.OFFERED))).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("줄 서기 전 미리보기 - 활성 대기(WAITING+OFFERED) 기준으로 서면 받을 번호를 준다")
+    void waitingPreview_showsNextNumber() {
+        String capacityId = saveSlot(saveStore(), tomorrowAt(19), 1);
+        List<User> users = saveUsers(3);
+        String reservationId = reserve(users.get(0), capacityId).getReservation().getReservationId();
+        reserve(users.get(1), capacityId);   // WAITING
+        reserve(users.get(2), capacityId);   // WAITING
+
+        WaitingPreviewResponse before = waitingService.getWaitingPreview(capacityId);
+        assertThat(before.getWaitingCount()).isEqualTo(2);
+        assertThat(before.getNextNumber()).isEqualTo(3);
+
+        // 1번이 OFFERED 로 승급돼도 활성 인원은 그대로 2 → 서면 여전히 3번째
+        reservationService.cancelReservation(users.get(0).getUserId(), reservationId);
+        WaitingPreviewResponse after = waitingService.getWaitingPreview(capacityId);
+        assertThat(after.getWaitingCount()).isEqualTo(2);
+        assertThat(after.getNextNumber()).isEqualTo(3);
     }
 
     // ---------- 헬퍼 ----------
