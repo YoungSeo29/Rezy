@@ -11,10 +11,15 @@ import java.util.UUID;
 
 @Entity
 @Table(name = "users",
-        uniqueConstraints = @UniqueConstraint(
-                name = "uk_provider_provider_id",
-                columnNames = {"provider", "provider_id"}
-        ))
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_provider_provider_id",
+                        columnNames = {"provider", "provider_id"}),
+                // 닉네임은 중복 불가. 아직 프로필 미완성이면 NULL - MariaDB 는 NULL 중복을 허용한다
+                @UniqueConstraint(
+                        name = "uk_nickname",
+                        columnNames = {"nickname"})
+        })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class User {

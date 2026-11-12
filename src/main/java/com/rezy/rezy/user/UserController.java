@@ -2,6 +2,7 @@ package com.rezy.rezy.user;
 
 import com.rezy.rezy.auth.dto.ProfileRequest;
 import com.rezy.rezy.user.dto.MyProfileResponse;
+import com.rezy.rezy.user.dto.NicknameExistsResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -24,6 +25,12 @@ public class UserController {
         userService.completeProfile(authentication.getName(), req.getNickname(), req.getRole());
 
         return ResponseEntity.noContent().build();
+    }
+
+    // 닉네임 중복 확인
+    @GetMapping("/nickname/exists")
+    public ResponseEntity<NicknameExistsResponse> checkNickname(@RequestParam String nickname) {
+        return ResponseEntity.ok(new NicknameExistsResponse(userService.isNicknameTaken(nickname)));
     }
 
     // 내 정보 조회
